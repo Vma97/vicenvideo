@@ -1,0 +1,17 @@
+{
+  "name": "CUADRA — Clips a vídeo para Instagram",
+  "short_name": "CUADRA",
+  "description": "Junta clips cortos en un vídeo vertical de 1080 para historias y publicaciones",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0E0F12",
+  "theme_color": "#0E0F12",
+  "lang": "es",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

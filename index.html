@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0E0F12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CUADRA">
+<title>CUADRA</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/styles.css?v=1">
+</head>
+<body class="fmt-story">
+
+<header class="top">
+  <div class="brand">CUADRA</div>
+  <button id="btnClear" class="ghost" hidden>Vaciar</button>
+</header>
+
+<main>
+  <section id="empty" class="empty">
+    <div class="empty-art" aria-hidden="true"><i></i><i></i><i></i></div>
+    <h1>Clips cortos → un vídeo de 1 min</h1>
+    <p>Elige los vídeos de la galería. CUADRA los encuadra, los une con transición y te lo saca en 1080.</p>
+    <label class="btn primary big">Añadir clips<input type="file" id="fileInput" accept="video/*" multiple hidden></label>
+  </section>
+
+  <section id="project" hidden>
+    <div class="settings">
+      <div class="seg format-seg" id="segFormat">
+        <button data-v="story">Historia<small>9:16 · 1080×1920</small></button>
+        <button data-v="post">Publicación<small>4:5 · 1080×1350</small></button>
+      </div>
+      <div class="row"><span class="lbl">Cada clip</span>
+        <div class="seg" id="segDur">
+          <button data-v="2">2 s</button><button data-v="3">3 s</button><button data-v="4">4 s</button><button data-v="5">5 s</button>
+        </div>
+      </div>
+      <div class="row"><span class="lbl">Transición</span>
+        <div class="seg" id="segTrans"></div>
+      </div>
+    </div>
+
+    <div class="summary"><span id="sumCount"></span><span id="sumTotal" class="total"></span></div>
+    <p class="hint">Toca un clip para elegir el trozo y el encuadre. Mantén pulsado para moverlo.</p>
+    <div id="grid" class="grid"></div>
+    <label class="add-more">+ Añadir más clips<input type="file" id="fileInput2" accept="video/*" multiple hidden></label>
+  </section>
+</main>
+
+<footer id="bar" class="bar" hidden>
+  <button id="btnPreview" class="btn">▶ Vista previa</button>
+  <button id="btnExport" class="btn primary">Exportar 1080</button>
+</footer>
+
+<!-- Editor de un clip: trozo, frame exacto y encuadre -->
+<div id="editor" class="sheet" hidden>
+  <div class="sheet-head">
+    <span id="edTitle" class="sheet-title"></span>
+    <button id="edDone" class="btn primary small">Listo</button>
+  </div>
+  <div class="stage" id="edStage">
+    <canvas id="edCanvas"></canvas>
+    <div class="stage-hint">Arrastra para encuadrar</div>
+  </div>
+  <div class="ctrl">
+    <div class="ctrl-row"><span>Empieza en</span><output id="edStartOut"></output></div>
+    <input type="range" id="edStart" min="0" max="0" step="0.001" value="0">
+    <div class="frame-btns">
+      <button data-step="-1">‹ frame</button>
+      <button id="edPlay">▶ Probar</button>
+      <button data-step="1">frame ›</button>
+    </div>
+    <div class="ctrl-row"><span>Zoom</span><output id="edZoomOut"></output></div>
+    <input type="range" id="edZoom" min="1" max="2.5" step="0.01" value="1">
+    <div class="ed-actions">
+      <button id="edLeft">← Mover</button>
+      <button id="edCenter">Centrar</button>
+      <button id="edRight">Mover →</button>
+      <button id="edDelete" class="danger">Quitar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Vista previa y exportación -->
+<div id="player" class="overlay" hidden>
+  <div class="sheet-head">
+    <span id="plTitle" class="sheet-title"></span>
+    <button id="plClose" class="btn small">Cerrar</button>
+  </div>
+  <div class="stage" id="plStage">
+    <canvas id="plCanvas"></canvas>
+    <video id="plResult" playsinline controls loop hidden></video>
+  </div>
+  <div class="progress"><div id="plBar"></div></div>
+  <div id="plStatus" class="status"></div>
+  <div id="plActions" class="pl-actions" hidden>
+    <button id="plShare" class="btn primary">Guardar / Compartir</button>
+    <a id="plDownload" class="btn">Descargar</a>
+  </div>
+</div>
+
+<!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
+<div id="vpool" aria-hidden="true"></div>
+
+<script src="js/app.js?v=1"></script>
+</body>
+</html>
