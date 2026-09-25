@@ -2538,6 +2538,41 @@ function init() {
   };
   window.addEventListener("focus", () => setTimeout(waiting, 400));
   document.addEventListener("visibilitychange", () => setTimeout(waiting, 400));
+  // Botón que lanza el atajo de iOS «Vídeos a VicenVideo» (copia los vídeos de hoy, originales,
+  // a Archivos › En mi iPhone › VicenVideo). Al volver, se explica cómo meterlos de golpe.
+  let fromShortcut = false;
+  const runShortcut = () => {
+    fromShortcut = true;
+    location.href = "shortcuts://run-shortcut?name=" + encodeURIComponent("Vídeos a VicenVideo");
+    setTimeout(() => {
+      if (!document.hidden) {
+        fromShortcut = false;
+        showToast("No se ha abierto Atajos. ¿Tienes creado el atajo «Vídeos a VicenVideo»?", "Cómo crearlo", () => { location.href = "atajo.html"; });
+      }
+    }, 2500);
+  };
+  document.querySelectorAll(".btn-shortcut").forEach((b) => b.addEventListener("click", runShortcut));
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden || !fromShortcut) return;
+    fromShortcut = false;
+    showToast("Ahora: Añadir clips → Seleccionar archivos → carpeta VicenVideo → Seleccionar todo → Abrir", "Vale", () => {});
+  });
+  // Arrastrar vídeos desde Fotos (u otra app) y soltarlos en VicenVideo
+  let dragDepth = 0;
+  const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files");
+  document.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; dragDepth++; document.body.classList.add("dropping"); });
+  document.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove("dropping"); });
+  document.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+  document.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove("dropping");
+    const files = [...e.dataTransfer.files];
+    const mb = files.reduce((t, f) => t + f.size, 0) / 1048576;
+    showToast(`Soltados ${files.length} vídeo${files.length === 1 ? "" : "s"} (${Math.round(mb)} MB)…`, "Vale", () => {});
+    addFiles(files).catch((err) => showToast("Error al añadir: " + (err && err.message || err), "Vale", () => {}));
+  });
   // Cualquier error inesperado, a la vista
   window.addEventListener("error", (e) => showToast("Error: " + (e.message || "desconocido"), "Vale", () => {}));
   window.addEventListener("unhandledrejection", (e) => showToast("Error: " + ((e.reason && e.reason.message) || e.reason || "desconocido"), "Vale", () => {}));

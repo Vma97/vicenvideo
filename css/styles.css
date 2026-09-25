@@ -288,3 +288,13 @@ input.warm { accent-color: #F0A64B; }
 .many p { margin: 6px 0 0; }
 
 .many a { color: var(--accent); font-weight: 600; text-decoration: none; }
+
+/* ---------- Soltar vídeos arrastrados ---------- */
+body.dropping::after {
+  content: "Suelta aquí los vídeos"; position: fixed; inset: 10px; z-index: 90; display: grid; place-items: center;
+  border: 3px dashed var(--accent); border-radius: 20px; background: rgba(14, 15, 18, .85);
+  font-size: 20px; font-weight: 700; color: var(--text); pointer-events: none;
+}
+
+.empty .btn-shortcut { display: flex; margin: 12px auto 0; }
+.wide-btn { display: flex; width: 100%; margin: -8px 0 4px; }

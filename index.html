@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="64x64" href="icons/icon-64.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/styles.css?v=14">
+<link rel="stylesheet" href="css/styles.css?v=16">
 </head>
 <body class="fmt-story">
 
@@ -35,6 +35,7 @@
     <h1>Clips cortos → un vídeo de 1 min</h1>
     <p>Elige los vídeos de la galería. VicenVideo los ordena por hora, los encuadra, los une con transición y te lo saca en 1080.</p>
     <label class="btn primary big">Añadir clips<input type="file" id="fileInput" accept="video/*" multiple hidden></label>
+    <button class="btn btn-shortcut">⚡ Elegir vídeos con el atajo</button>
     <details class="many">
       <summary>¿Muchos vídeos? (20, 40…) Mételos por tandas</summary>
       <ol>
@@ -42,7 +43,7 @@
         <li>Repite con <b>+ Añadir más clips</b>. Cada tanda se coloca sola en su sitio por hora de grabación.</li>
       </ol>
       <p>Safari convierte cada vídeo de la Fototeca antes de dárselo a la app; con 40 de golpe son varios minutos sin ver nada. Si están en iCloud, primero se descargan: mejor con WiFi.</p>
-      <p><a href="atajo.html">⚡ O usa el atajo del iPhone: los 40 de golpe y al momento →</a></p>
+      <p><a href="atajo.html">⚡ Para meter los 40 de golpe: crea el atajo (una vez) →</a></p>
     </details>
   </section>
 
@@ -80,6 +81,7 @@
     </div>
     <div id="grid" class="grid"></div>
     <label class="add-more">+ Añadir más clips<input type="file" id="fileInput2" accept="video/*" multiple hidden></label>
+    <button class="btn btn-shortcut wide-btn">⚡ Elegir vídeos con el atajo</button>
     <details class="many">
       <summary>¿Muchos vídeos? (20, 40…) Mételos por tandas</summary>
       <ol>
@@ -87,7 +89,7 @@
         <li>Repite con <b>+ Añadir más clips</b>. Cada tanda se coloca sola en su sitio por hora de grabación.</li>
       </ol>
       <p>Safari convierte cada vídeo de la Fototeca antes de dárselo a la app; con 40 de golpe son varios minutos sin ver nada. Si están en iCloud, primero se descargan: mejor con WiFi.</p>
-      <p><a href="atajo.html">⚡ O usa el atajo del iPhone: los 40 de golpe y al momento →</a></p>
+      <p><a href="atajo.html">⚡ Para meter los 40 de golpe: crea el atajo (una vez) →</a></p>
     </details>
   </section>
 </main>
@@ -222,6 +224,6 @@
 <!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
 <div id="vpool" aria-hidden="true"></div>
 
-<script src="js/app.js?v=14"></script>
+<script src="js/app.js?v=16"></script>
 </body>
 </html>

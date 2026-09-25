@@ -26,6 +26,8 @@
   ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
   ul b { color: var(--text); }
   .note { background: var(--panel); border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 12px; color: var(--muted); margin-top: 12px; font-size: 14px; }
+  .flow { display: grid; gap: 6px; background: var(--panel); border-radius: 14px; padding: 12px 14px; margin: 0 0 8px; font-size: 15px; }
+  .flow div::before { content: "→ "; color: var(--accent); font-weight: 700; }
   a.btn { display: block; text-align: center; margin-top: 26px; padding: 14px; border-radius: 14px; color: #fff; text-decoration: none; font-weight: 700;
     background: linear-gradient(135deg, var(--accent2), var(--accent)); }
 </style>
@@ -33,44 +35,52 @@
 <body>
 <main>
   <header><img src="icons/icon-192.png" alt=""><h1>Atajo «Vídeos a VicenVideo»</h1></header>
-  <p class="lead">Copia tus vídeos de la Fototeca, originales y sin convertir, a una carpeta. Desde ahí entran en VicenVideo al momento, aunque sean 40.</p>
+  <p class="lead">Sirve para meter muchos vídeos de golpe (20, 40…) sin que Safari los convierta uno a uno. Se crea una vez y luego va solo.</p>
 
-  <h2>Una sola vez: crear la carpeta</h2>
+  <h2>Cómo funciona</h2>
+  <div class="flow">
+    <div>En VicenVideo tocas <b>⚡ Elegir vídeos con el atajo</b></div>
+    <div>Se vacía la carpeta (lo de la vez anterior)</div>
+    <div>Eliges los vídeos que quieras en tu Fototeca</div>
+    <div>Se copian originales a la carpeta VicenVideo</div>
+    <div>Vuelves a la app y los metes todos de golpe</div>
+  </div>
+
+  <h2>Paso 1 · Crear la carpeta (una vez)</h2>
   <ol>
-    <li>Abre <b>Archivos</b> → <b>En mi iPhone</b> → mantén pulsado un hueco vacío → <b>Nueva carpeta</b> → llámala <b>VicenVideo</b>.</li>
+    <li>Abre la app <b>Archivos</b> → abajo, <b>Explorar</b> → <b>En mi iPhone</b>.</li>
+    <li>Mantén el dedo en un hueco vacío → <b>Nueva carpeta</b> → escribe <b>VicenVideo</b> → OK.</li>
   </ol>
 
-  <h2>Una sola vez: crear el atajo</h2>
+  <h2>Paso 2 · Crear el atajo (una vez)</h2>
   <ol>
-    <li>Abre <b>Atajos</b> → <b>+</b> (arriba a la derecha). Arriba, cambia el nombre a <b>Vídeos a VicenVideo</b>.</li>
-    <li>Añade <span class="act">Obtener contenido de la carpeta</span>. Toca «Carpeta» y elige <b>En mi iPhone › VicenVideo</b>.</li>
-    <li>Añade <span class="act">Eliminar archivos</span>. Toca la flechita <b>›</b> y desactiva <b>Confirmar antes de eliminar</b>.
-      <ul><li>Así cada vez se vacía la carpeta y no se acumulan vídeos del día anterior.</li></ul></li>
-    <li>Añade <span class="act">Buscar fotos</span> y ponle estos filtros (toca <b>Añadir filtro</b>):
+    <li>Abre la app <b>Atajos</b> → pestaña <b>Atajos</b> → botón <b>+</b> arriba a la derecha.</li>
+    <li>Arriba del todo, toca el nombre y ponle exactamente: <b>Vídeos a VicenVideo</b> (con la tilde, igual que aquí: la app lo busca por el nombre).</li>
+    <li>En el buscador de abajo escribe <b>carpeta</b> y toca <span class="act">Obtener contenido de la carpeta</span>. Toca la palabra azul <b>Carpeta</b> → <b>En mi iPhone</b> → <b>VicenVideo</b> → <b>Abrir</b>.</li>
+    <li>Busca <b>eliminar</b> y toca <span class="act">Eliminar archivos</span>. Toca la flechita <b>›</b> y <b>apaga</b> «Confirmar antes de eliminar».</li>
+    <li>Busca <b>seleccionar fotos</b> y toca <span class="act">Seleccionar fotos</span>. Toca la flechita <b>›</b>:
       <ul>
-        <li><b>Tipo de contenido</b> es <b>Vídeo</b></li>
-        <li><b>Fecha de captura</b> es <b>hoy</b> (o «en los últimos 2 días», como prefieras)</li>
-        <li>Ordenar por <b>Fecha de captura</b>, <b>Más antiguo primero</b>. Sin límite.</li>
+        <li><b>Incluir</b>: deja marcado solo <b>Vídeos</b></li>
+        <li><b>Seleccionar varios</b>: <b>encendido</b></li>
       </ul></li>
-    <li>Añade <span class="act">Guardar archivo</span>. Toca la flechita <b>›</b>:
+    <li>Busca <b>guardar archivo</b> y toca <span class="act">Guardar archivo</span>. Toca la flechita <b>›</b>:
       <ul>
-        <li>Desactiva <b>Preguntar dónde guardar</b></li>
-        <li>Toca la carpeta de destino y elige <b>En mi iPhone › VicenVideo</b></li>
-        <li>Activa <b>Sobrescribir si el archivo existe</b></li>
+        <li><b>Preguntar dónde guardar</b>: <b>apagado</b></li>
+        <li>Toca la carpeta de destino → <b>En mi iPhone</b> → <b>VicenVideo</b></li>
+        <li><b>Sobrescribir si el archivo existe</b>: <b>encendido</b></li>
       </ul></li>
-    <li>(Opcional) Añade <span class="act">Mostrar notificación</span> con el texto «Vídeos listos para VicenVideo».</li>
-    <li>Toca <b>OK</b>. Si quieres, desde el menú del atajo <b>Añadir a pantalla de inicio</b> y lo tienes al lado de la app.</li>
+    <li>Toca <b>OK</b> (o la ✕ arriba). ¡Ya está!</li>
   </ol>
-  <div class="note">Los nombres pueden variar un poco según la versión de iOS. Si no encuentras una acción, búscala en la barra de búsqueda de acciones de Atajos. La primera vez te pedirá permiso para acceder a Fotos y a Archivos: dale a <b>Permitir siempre</b>.</div>
+  <div class="note">Tiene que quedar así, de arriba abajo: <b>Obtener contenido de la carpeta</b> → <b>Eliminar archivos</b> → <b>Seleccionar fotos</b> → <b>Guardar archivo</b>. La primera vez que lo uses te pedirá permisos para Fotos y Archivos: dale a <b>Permitir siempre</b>. Si alguna acción se llama un poco distinto en tu iOS, búscala con palabras parecidas.</div>
 
-  <h2>Cada noche</h2>
+  <h2>Cada vez que montes un vídeo</h2>
   <ol>
-    <li>Ejecuta el atajo <b>Vídeos a VicenVideo</b>. Si los vídeos están en iCloud, tardará lo que tarde en descargarlos (mejor con WiFi).</li>
-    <li>Abre <b>VicenVideo</b> → <b>Añadir clips</b> → <b>Seleccionar archivos</b> (no «Fototeca»).</li>
-    <li>Entra en <b>En mi iPhone › VicenVideo</b> → toca <b>•••</b> o <b>Seleccionar</b> → <b>Seleccionar todo</b> → <b>Abrir</b>.</li>
-    <li>Entran todos a la vez, ordenados por hora. Dale a <b>✨ Hazlo tú</b>.</li>
+    <li>En VicenVideo toca <b>⚡ Elegir vídeos con el atajo</b>. Se abre Atajos y te enseña tu Fototeca: elige los vídeos y toca <b>Añadir</b>.</li>
+    <li>Cuando termine de copiarlos (si están en iCloud, primero se descargan), <b>vuelve a VicenVideo</b>.</li>
+    <li>Toca <b>Añadir clips</b> → <b>Seleccionar archivos</b> → carpeta <b>VicenVideo</b> → <b>•••</b> o <b>Seleccionar</b> → <b>Seleccionar todo</b> → <b>Abrir</b>.</li>
+    <li>Entran todos de golpe, ordenados por hora. Dale a <b>✨ Hazlo tú</b>.</li>
   </ol>
-  <div class="note">¿Prefieres elegir tú los vídeos en vez de «los de hoy»? Cambia la acción <b>Buscar fotos</b> por <span class="act">Seleccionar fotos</span> y activa <b>Seleccionar varias</b>. El atajo también los copia originales, sin la conversión de Safari.</div>
+  <div class="note">Los vídeos se quedan en la carpeta hasta la próxima vez que uses el atajo, que la vacía antes de copiar los nuevos. Viene bien: si iOS cierra la app a mitad del montaje, los vuelves a coger de ahí y se recolocan solos.</div>
 
   <a class="btn" href="./">Volver a VicenVideo</a>
 </main>
