@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/styles.css?v=3">
+<link rel="stylesheet" href="css/styles.css?v=4">
 </head>
 <body class="fmt-story">
 
@@ -80,11 +80,16 @@
     </div>
     <div class="ctrl-row"><span>Zoom</span><output id="edZoomOut"></output></div>
     <input type="range" id="edZoom" min="1" max="2.5" step="0.01" value="1">
+    <div class="ctrl-row"><span>Velocidad</span></div>
+    <div class="seg" id="edSpeed">
+      <button data-v="0.5">0,5× lenta</button><button data-v="1">1× normal</button><button data-v="2">2× rápida</button>
+    </div>
     <div class="ed-actions">
-      <button id="edLeft">← Mover</button>
+      <button id="edLeft" aria-label="Mover a la izquierda">←</button>
       <button id="edCenter">Centrar</button>
-      <button id="edRight">Mover →</button>
+      <button id="edDup">Duplicar</button>
       <button id="edDelete" class="danger">Quitar</button>
+      <button id="edRight" aria-label="Mover a la derecha">→</button>
     </div>
   </div>
 </div>
@@ -107,9 +112,11 @@
   </div>
 </div>
 
+<div id="toast" class="toast" hidden><span id="toastText"></span><button id="toastBtn"></button></div>
+
 <!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
 <div id="vpool" aria-hidden="true"></div>
 
-<script src="js/app.js?v=3"></script>
+<script src="js/app.js?v=4"></script>
 </body>
 </html>

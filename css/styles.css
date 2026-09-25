@@ -146,7 +146,8 @@ main { padding: 0 16px; }
 output { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 650; }
 input[type=range] { width: 100%; accent-color: var(--accent); height: 30px; margin: 0; }
 .frame-btns { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px; margin-bottom: 6px; }
-.ed-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+.ed-actions { display: grid; grid-template-columns: 44px 1fr 1fr 1fr 44px; gap: 6px; margin-top: 6px; }
+#edSpeed { flex: none; }
 .frame-btns button, .ed-actions button {
   height: 42px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2);
   font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; padding: 0 4px;
@@ -162,3 +163,12 @@ button:disabled { opacity: .35; }
 
 #vpool { position: fixed; left: 0; top: 0; width: 2px; height: 2px; overflow: hidden; opacity: 0; pointer-events: none; }
 #vpool video { width: 2px; height: 2px; }
+
+/* ---------- Aviso con deshacer ---------- */
+.toast {
+  position: fixed; left: 16px; right: 16px; bottom: calc(86px + var(--safe-b)); z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 14px; background: #2B2F37; box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  font-size: 14px;
+}
+.toast button { border: 0; background: none; color: var(--accent); font-weight: 700; font-size: 14px; cursor: pointer; padding: 4px 2px; white-space: nowrap; }

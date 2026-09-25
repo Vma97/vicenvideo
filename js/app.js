@@ -84,8 +84,11 @@ function fmtTime(s) {
 }
 const fmtSec = (s) => s.toFixed(2).replace(".", ",") + " s";
 
-function maxStart(clip) { return Math.max(0, clip.duration - state.dur); }
-function slotLen(clip) { return Math.max(MIN_SLOT, Math.min(state.dur, clip.duration - clip.start)); }
+// Con velocidad, un hueco de 4 s a 2× consume 8 s de vídeo original ("metraje")
+function maxStart(clip) { return Math.max(0, clip.duration - state.dur * clip.speed); }
+function slotLen(clip) { return Math.max(MIN_SLOT, Math.min(state.dur, (clip.duration - clip.start) / clip.speed)); }
+function footage(clip) { return slotLen(clip) * clip.speed; }
+const fmtSpeed = (x) => String(x).replace(".", ",") + "×";
 function usable() { return state.clips.filter((c) => !c.loading && !c.error && c.duration > 0); }
 
 // Monta la línea de tiempo hasta el máximo del formato: el último clip que
@@ -132,14 +135,14 @@ const TONES = { off: "No", soft: "Suave", full: "Fuerte" };
 const TONE_STRENGTH = { off: 0, soft: 0.55, full: 1 };
 let toneTarget = null;
 
-const statsKey = (clip) => `${clip.start.toFixed(3)}|${state.dur}`;
+const statsKey = (clip) => `${clip.start.toFixed(3)}|${state.dur}|${clip.speed}`;
 const median = (arr) => { const a = [...arr].sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 
 async function computeStats(v, clip) {
   const c = document.createElement("canvas");
   c.width = c.height = 48;
   const ctx = c.getContext("2d", { willReadFrequently: true });
-  const len = slotLen(clip);
+  const len = footage(clip);
   let r = 0, g = 0, b = 0, y = 0, y2 = 0, n = 0;
   for (let k = 0; k < 5; k++) {
     await seek(v, Math.min(clip.duration - 0.05, clip.start + len * (k + 0.5) / 5));
@@ -285,8 +288,8 @@ async function addFiles(fileList) {
   const files = [...fileList].filter((f) => (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|3gp)$/i.test(f.name));
   if (!files.length) return;
   const added = files.map((f) => ({
-    id: nextId++, file: f, url: URL.createObjectURL(f), name: f.name,
-    duration: 0, thumb: "", start: 0, zoom: 1, fx: 0, fy: 0, loading: true, error: false,
+    id: nextId, fileKey: nextId++, file: f, url: URL.createObjectURL(f), name: f.name,
+    duration: 0, thumb: "", start: 0, zoom: 1, fx: 0, fy: 0, speed: 1, loading: true, error: false,
   }));
   state.clips.push(...added);
   render();
@@ -295,6 +298,7 @@ async function addFiles(fileList) {
     try { await probe(clip); } catch (e) { clip.error = true; }
     clip.loading = false;
     render();
+    if (!clip.error) store.putFile(clip.fileKey, clip.file);
   }
 }
 
@@ -326,9 +330,54 @@ function snapshot(v, clip) {
   return c.toDataURL("image/jpeg", 0.72);
 }
 
+// Un mismo vídeo puede estar en varios clips (duplicados): la URL solo se libera
+// cuando ya no la usa ninguno.
+function releaseUrl(url) {
+  if (!state.clips.some((c) => c.url === url) && !(undo && undo.clip.url === url)) URL.revokeObjectURL(url);
+}
+
+let undo = null;
 function removeClip(clip) {
-  state.clips = state.clips.filter((c) => c !== clip);
-  URL.revokeObjectURL(clip.url);
+  finishUndo();
+  const idx = state.clips.indexOf(clip);
+  state.clips.splice(idx, 1);
+  undo = { clip, idx, timer: setTimeout(finishUndo, 6000) };
+  showToast("Clip quitado", "Deshacer", () => {
+    if (!undo) return;
+    clearTimeout(undo.timer);
+    state.clips.splice(Math.min(undo.idx, state.clips.length), 0, undo.clip);
+    undo = null;
+    render();
+  });
+}
+function finishUndo() {
+  if (!undo) return;
+  clearTimeout(undo.timer);
+  const { clip } = undo;
+  undo = null;
+  hideToast();
+  releaseUrl(clip.url);
+  store.saveSoon();
+}
+
+let toastTimer = 0;
+function showToast(text, action, onAction, ms = 0) {
+  clearTimeout(toastTimer);
+  $("toastText").textContent = text;
+  const b = $("toastBtn");
+  b.textContent = action;
+  b.onclick = () => { hideToast(); onAction(); };
+  $("toast").hidden = false;
+  if (ms) toastTimer = setTimeout(hideToast, ms);
+}
+function hideToast() { clearTimeout(toastTimer); $("toast").hidden = true; }
+
+function duplicateClip(clip) {
+  const copy = { ...clip, id: nextId++, stats: null };
+  // El duplicado arranca justo donde acaba el original, si queda vídeo
+  copy.start = Math.min(clip.start + footage(clip), maxStart(clip));
+  state.clips.splice(state.clips.indexOf(clip) + 1, 0, copy);
+  return copy;
 }
 
 // ---------------------------------------------------------------- render
@@ -384,6 +433,7 @@ function render() {
   $("btnExport").disabled = !tl.length || loading;
 
   renderGrid(tl);
+  store.saveSoon();
 }
 
 function renderGrid(tl = buildTimeline()) {
@@ -415,7 +465,7 @@ function renderGrid(tl = buildTimeline()) {
         len.textContent = "no entra";
       } else {
         len.className = "len" + (l < state.dur - 0.01 ? " short" : "");
-        len.textContent = l.toFixed(1).replace(".", ",") + " s";
+        len.textContent = l.toFixed(1).replace(".", ",") + " s" + (clip.speed !== 1 ? " · " + fmtSpeed(clip.speed) : "");
       }
       t.appendChild(len);
     }
@@ -537,8 +587,8 @@ function updateEditorUI() {
   s.max = maxStart(clip);
   s.value = clip.start;
   s.disabled = maxStart(clip) <= 0;
-  const len = slotLen(clip);
-  $("edStartOut").textContent = `${fmtSec(clip.start)} → ${fmtSec(clip.start + len)}`;
+  $("edStartOut").textContent = `${fmtSec(clip.start)} → ${fmtSec(clip.start + footage(clip))}`;
+  document.querySelectorAll("#edSpeed button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === clip.speed));
   $("edZoom").value = clip.zoom;
   $("edZoomOut").textContent = clip.zoom.toFixed(2).replace(".", ",") + "×";
   $("edLeft").disabled = i <= 0;
@@ -580,10 +630,11 @@ function edTogglePlay() {
   ed.playing = true;
   $("edPlay").textContent = "■ Parar";
   v.currentTime = clip.start;
+  v.playbackRate = clip.speed;
   v.play().catch(() => {});
   const loop = () => {
     if (!ed.playing) return;
-    if (v.currentTime >= clip.start + slotLen(clip) || v.ended) {
+    if (v.currentTime >= clip.start + footage(clip) || v.ended) {
       v.currentTime = clip.start;
       v.play().catch(() => {});
     }
@@ -658,6 +709,21 @@ function setupEditor() {
     document.body.style.overflow = "";
     render();
   });
+  $("edDup").addEventListener("click", () => {
+    edStop();
+    const copy = duplicateClip(ed.clip);
+    ed.clip = copy;
+    updateEditorUI();
+    edSeek(copy.start);
+    showToast("Duplicado: elige otro trozo para este", "Vale", () => {}, 3000);
+  });
+  document.querySelectorAll("#edSpeed button").forEach((b) => b.addEventListener("click", () => {
+    edStop();
+    ed.clip.speed = Number(b.dataset.v);
+    ed.clip.start = Math.min(ed.clip.start, maxStart(ed.clip));
+    updateEditorUI();
+    edSeek(ed.clip.start);
+  }));
 
   // Arrastrar sobre la imagen para mover el encuadre
   const cv = $("edCanvas");
@@ -726,6 +792,7 @@ class Engine {
       if (el._idx !== i) return;
       await prime(el);
       await seek(el, clip.start);
+      el.defaultPlaybackRate = el.playbackRate = clip.speed;
       if (el._idx === i) el._ready = true;
     })();
     el._prep.catch(() => { if (el._idx === i) el._failed = true; });
@@ -786,12 +853,15 @@ class Engine {
     const prev = inTr ? this.el(i - 1) : null;
     for (const v of this.pool) {
       const needed = v === cur || v === prev;
-      if (needed && v.paused && !v.ended) v.play().catch(() => {});
+      if (needed && v.paused && !v.ended) {
+        v.playbackRate = tl[v._idx].clip.speed;
+        v.play().catch(() => {});
+      }
       // (los que aún se están preparando no se tocan: su play/pause de arranque es necesario en iOS)
       if (!needed && !v.paused && v._ready) v.pause();
     }
     // Si el vídeo se ha desfasado del reloj, lo recolocamos
-    const target = e.clip.start + local;
+    const target = e.clip.start + local * e.clip.speed;
     if (!cur.seeking && Math.abs(cur.currentTime - target) > 0.3 && target < cur.duration - 0.05) cur.currentTime = target;
 
     // En pantallas de 120 Hz no hace falta pintar más de 30 veces por segundo
@@ -1020,6 +1090,87 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// ---------------------------------------------------------------- guardar proyecto
+
+// Los vídeos y el estado de cada clip se guardan en IndexedDB (dentro del propio móvil),
+// para que si iOS cierra la app al irte a Fotos o a Instagram, al volver siga todo igual.
+const store = {
+  _db: null,
+  _timer: 0,
+  failed: false,
+  restored: false,
+  db() {
+    if (!this._db) {
+      this._db = new Promise((resolve, reject) => {
+        const r = indexedDB.open("cuadra", 1);
+        r.onupgradeneeded = () => { r.result.createObjectStore("files"); r.result.createObjectStore("meta"); };
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+    }
+    return this._db;
+  },
+  async req(name, mode, fn) {
+    const db = await this.db();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(name, mode);
+      const rq = fn(tx.objectStore(name));
+      tx.oncomplete = () => resolve(rq && rq.result);
+      tx.onerror = tx.onabort = () => reject(tx.error);
+    });
+  },
+  async putFile(key, file) {
+    try { await this.req("files", "readwrite", (s) => s.put(file, key)); }
+    catch (e) {
+      if (this.failed) return;
+      this.failed = true;
+      showToast("No hay espacio para guardar los clips: si cierras la app se perderán", "Vale", () => {});
+    }
+  },
+  saveSoon() {
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => this.saveNow(), 400);
+  },
+  async saveNow() {
+    clearTimeout(this._timer);
+    if (!this.restored) return;   // no pisar lo guardado antes de haberlo cargado
+    const keep = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "speed", "stats"];
+    const clips = state.clips.filter((c) => !c.loading && !c.error)
+      .map((c) => Object.fromEntries(keep.map((k) => [k, c[k]])));
+    try {
+      await this.req("meta", "readwrite", (s) => s.put({ clips, nextId }, "project"));
+      // Borra los vídeos que ya no usa ningún clip
+      const used = new Set(state.clips.map((c) => c.fileKey));
+      if (undo) used.add(undo.clip.fileKey);
+      const keys = await this.req("files", "readonly", (s) => s.getAllKeys());
+      const unused = keys.filter((k) => !used.has(k));
+      if (unused.length) await this.req("files", "readwrite", (s) => { unused.forEach((k) => s.delete(k)); });
+    } catch (e) { /* sin IndexedDB: la app funciona igual, solo que sin guardar */ }
+  },
+  async restore() {
+    try {
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      const meta = await this.req("meta", "readonly", (s) => s.get("project"));
+      if (meta && meta.clips && meta.clips.length && !state.clips.length) {
+        const files = new Map();
+        const clips = [];
+        for (const c of meta.clips) {
+          if (!files.has(c.fileKey)) {
+            const file = await this.req("files", "readonly", (s) => s.get(c.fileKey));
+            files.set(c.fileKey, file ? { file, url: URL.createObjectURL(file) } : null);
+          }
+          const f = files.get(c.fileKey);
+          if (f) clips.push({ speed: 1, ...c, file: f.file, url: f.url, loading: false, error: false });
+        }
+        nextId = Math.max(nextId, meta.nextId || 1, ...clips.map((c) => c.id + 1));
+        state.clips = clips;
+      }
+    } catch (e) { /* nada guardado o sin IndexedDB */ }
+    this.restored = true;
+    render();
+  },
+};
+
 // ---------------------------------------------------------------- arranque
 
 function init() {
@@ -1029,8 +1180,10 @@ function init() {
   $("fileInput2").addEventListener("change", onPick);
   $("btnClear").addEventListener("click", () => {
     if (!confirm("¿Quitar todos los clips?")) return;
-    for (const c of state.clips) URL.revokeObjectURL(c.url);
+    finishUndo();
+    const urls = new Set(state.clips.map((c) => c.url));
     state.clips = [];
+    urls.forEach((u) => URL.revokeObjectURL(u));
     render();
   });
   $("btnPreview").addEventListener("click", () => startPlayer(false));
@@ -1046,6 +1199,9 @@ function init() {
   setupGrid();
   setupEditor();
   render();
+  store.restore();
+  // iOS puede matar la app en cuanto se va a segundo plano: se guarda ya
+  document.addEventListener("visibilitychange", () => { if (document.hidden) store.saveNow(); });
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
