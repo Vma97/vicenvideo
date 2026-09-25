@@ -5,8 +5,8 @@
   --line: #2C3038;
   --text: #F2F3F5;
   --muted: #8C93A0;
-  --accent: #FF5C39;
-  --accent2: #E0337D;
+  --accent: #F55E7A;
+  --accent2: #7E45D8;
   --danger: #FF4D5E;
   --warn: #FFB547;
   --safe-t: env(safe-area-inset-top, 0px);
@@ -36,7 +36,7 @@ button { font: inherit; color: inherit; }
 }
 .brand {
   font-weight: 800; letter-spacing: .08em; font-size: 16px; white-space: nowrap;
-  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 main { padding: 0 16px; }
@@ -49,7 +49,7 @@ main { padding: 0 16px; }
   font-weight: 650; cursor: pointer; text-decoration: none; user-select: none; -webkit-user-select: none;
 }
 .btn:active { transform: scale(.98); }
-.btn.primary { border: 0; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.btn.primary { border: 0; background: linear-gradient(135deg, var(--accent2), var(--accent)); color: #fff; }
 .btn.big { height: 56px; padding: 0 30px; font-size: 17px; }
 .btn.small { height: 36px; padding: 0 16px; border-radius: 11px; font-size: 14px; }
 .btn:disabled { opacity: .4; pointer-events: none; }
@@ -61,7 +61,7 @@ main { padding: 0 16px; }
 .empty p { color: var(--muted); margin: 0 auto 30px; max-width: 320px; }
 .empty-art { display: flex; justify-content: center; align-items: flex-end; gap: 8px; height: 120px; }
 .empty-art i { display: block; width: 44px; aspect-ratio: 9/16; border-radius: 9px; background: var(--panel2); border: 1px solid var(--line); }
-.empty-art i:nth-child(2) { width: 62px; background: linear-gradient(160deg, var(--accent), var(--accent2)); border: 0; }
+.empty-art i:nth-child(2) { width: 62px; background: linear-gradient(160deg, var(--accent2), var(--accent)); border: 0; }
 
 /* ---------- Ajustes ---------- */
 .settings { background: var(--panel); border-radius: 16px; margin-top: 4px; }
@@ -172,7 +172,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 30px; marg
 button:disabled { opacity: .35; }
 
 .progress { height: 4px; background: var(--panel2); margin: 10px 16px 0; border-radius: 2px; overflow: hidden; }
-#plBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+#plBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
 .status { padding: 10px 16px; color: var(--muted); font-size: 14px; text-align: center; min-height: 44px; }
 .status.error { color: var(--danger); }
 .pl-actions { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; padding: 0 16px 12px; }
@@ -202,7 +202,7 @@ button:disabled { opacity: .35; }
 .beat { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .tap {
   height: 54px; border-radius: 12px; border: 0; font-weight: 700; font-size: 15px; cursor: pointer;
-  background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff;
+  background: linear-gradient(135deg, var(--accent2), var(--accent)); color: #fff;
   touch-action: manipulation; -webkit-user-select: none; user-select: none;
 }
 .tap.hit { animation: hit .12s ease-out; }
@@ -256,7 +256,7 @@ input.warm { accent-color: #F0A64B; }
 
 /* ---------- Borradores ---------- */
 .top-actions { display: flex; gap: 6px; flex: none; }
-.chip.accent { border: 0; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.chip.accent { border: 0; background: linear-gradient(135deg, var(--accent2), var(--accent)); color: #fff; }
 .proj-name { color: var(--muted); font-size: 13px; }
 .proj-empty { color: var(--muted); text-align: center; padding: 30px 10px; margin: 0; }
 .ask { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .6); display: grid; place-items: center; padding: 24px; }
@@ -267,6 +267,10 @@ input.warm { accent-color: #F0A64B; }
 
 /* ---------- Trabajos largos ---------- */
 .busy-bar { margin: 0 0 14px; }
-#busyBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
+#busyBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent2), var(--accent)); transition: width .2s; }
 
 .tools { flex-wrap: wrap; }
+
+/* ---------- Logo ---------- */
+.logo { width: 26px; height: 26px; border-radius: 7px; flex: none; align-self: center; box-shadow: 0 2px 8px rgba(126, 69, 216, .35); }
+.proj-btn { align-items: center; }

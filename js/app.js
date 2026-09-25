@@ -1497,12 +1497,12 @@ function edDraw() {
       const q = zoneCanvasRect(z, r, p, ed.clip);
       const sel = i === ed.zone;
       ctx.lineWidth = sel ? 3 : 2;
-      ctx.strokeStyle = sel ? "#FF5C39" : "rgba(255,255,255,.85)";
+      ctx.strokeStyle = sel ? "#F55E7A" : "rgba(255,255,255,.85)";
       ctx.setLineDash(sel ? [] : [6, 4]);
       ctx.strokeRect(q.x, q.y, q.w, q.h);
       ctx.setLineDash([]);
       if (sel) {
-        ctx.fillStyle = "#FF5C39";
+        ctx.fillStyle = "#F55E7A";
         ctx.fillRect(q.x + q.w - 9, q.y + q.h - 9, 18, 18);
       }
     });

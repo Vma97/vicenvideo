@@ -1,15 +1,16 @@
 // Service worker: cachea la app para que funcione sin conexión.
 // Red primero (siempre la versión más nueva si hay internet), caché si no.
-const CACHE = "cuadra-shell-v10";
+const CACHE = "cuadra-shell-v11";
 const SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./css/styles.css?v=10",
-  "./js/app.js?v=10",
+  "./css/styles.css?v=11",
+  "./js/app.js?v=11",
   "./icons/icon-180.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/icon-64.png",
 ];
 
 self.addEventListener("install", (event) => {
