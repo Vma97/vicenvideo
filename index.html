@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/styles.css?v=1">
+<link rel="stylesheet" href="css/styles.css?v=2">
 </head>
 <body class="fmt-story">
 
@@ -32,12 +32,12 @@
   <section id="project" hidden>
     <div class="settings">
       <div class="seg format-seg" id="segFormat">
-        <button data-v="story">Historia<small>9:16 · 1080×1920</small></button>
-        <button data-v="post">Publicación<small>4:5 · 1080×1350</small></button>
+        <button data-v="story">Historia<small>9:16 · hasta 1 min</small></button>
+        <button data-v="post">Publicación<small>4:5 · hasta 3 min</small></button>
       </div>
       <div class="row"><span class="lbl">Cada clip</span>
         <div class="seg" id="segDur">
-          <button data-v="2">2 s</button><button data-v="3">3 s</button><button data-v="4">4 s</button><button data-v="5">5 s</button>
+          <button data-v="4">4 s</button><button data-v="8">8 s</button>
         </div>
       </div>
       <div class="row"><span class="lbl">Transición</span>
@@ -46,7 +46,7 @@
     </div>
 
     <div class="summary"><span id="sumCount"></span><span id="sumTotal" class="total"></span></div>
-    <p class="hint">Toca un clip para elegir el trozo y el encuadre. Mantén pulsado para moverlo.</p>
+    <p class="hint" id="hint">Toca un clip para elegir el trozo y el encuadre. Mantén pulsado para moverlo.</p>
     <div id="grid" class="grid"></div>
     <label class="add-more">+ Añadir más clips<input type="file" id="fileInput2" accept="video/*" multiple hidden></label>
   </section>
@@ -107,6 +107,6 @@
 <!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
 <div id="vpool" aria-hidden="true"></div>
 
-<script src="js/app.js?v=1"></script>
+<script src="js/app.js?v=2"></script>
 </body>
 </html>

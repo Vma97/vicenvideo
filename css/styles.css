@@ -85,6 +85,7 @@ main { padding: 0 16px; }
 .summary .total { font-variant-numeric: tabular-nums; font-size: 22px; }
 .summary .total.warn { color: var(--warn); }
 .hint { color: var(--muted); font-size: 13px; margin: 0 2px 12px; }
+.hint.warn { color: var(--warn); }
 
 /* ---------- Rejilla de clips ---------- */
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -107,6 +108,7 @@ main { padding: 0 16px; }
 }
 .tile.err { display: grid; place-items: center; color: var(--danger); font-size: 12px; text-align: center; padding: 8px; }
 .tile.placeholder { opacity: .2; }
+.tile.out { opacity: .35; filter: grayscale(1); }
 .drag-ghost { position: fixed; z-index: 50; pointer-events: none; transform: scale(1.07); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); }
 @keyframes spin { to { transform: rotate(360deg); } }
 

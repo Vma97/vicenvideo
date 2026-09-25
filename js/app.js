@@ -4,11 +4,12 @@
 // Todo pasa en el móvil: los clips se dibujan en un <canvas> en tiempo real
 // y MediaRecorder graba ese canvas a MP4. Nada sale del teléfono.
 
+// max = duración máxima en segundos (límites de Instagram): lo que pase se corta
 const FORMATS = {
-  story: { w: 1080, h: 1920 },
-  post: { w: 1080, h: 1350 },
+  story: { w: 1080, h: 1920, max: 60 },
+  post: { w: 1080, h: 1350, max: 180 },
 };
-const DURS = [2, 3, 4, 5];
+const DURS = [4, 8];
 const TRANSITIONS = {
   cut: "Corte",
   fade: "Fundido",
@@ -87,15 +88,22 @@ function maxStart(clip) { return Math.max(0, clip.duration - state.dur); }
 function slotLen(clip) { return Math.max(MIN_SLOT, Math.min(state.dur, clip.duration - clip.start)); }
 function usable() { return state.clips.filter((c) => !c.loading && !c.error && c.duration > 0); }
 
+// Monta la línea de tiempo hasta el máximo del formato: el último clip que
+// entra se recorta para clavar el límite y los que sobran se quedan fuera.
 function buildTimeline() {
+  const max = FORMATS[state.format].max;
+  const tl = [];
   let t = 0;
-  return usable().map((clip) => {
-    const len = slotLen(clip);
-    const e = { clip, t0: t, len };
+  for (const clip of usable()) {
+    const len = Math.min(slotLen(clip), max - t);
+    if (len < 0.3) break;
+    tl.push({ clip, t0: t, len });
     t += len;
-    return e;
-  });
+  }
+  return tl;
 }
+
+function rawTotal() { return usable().reduce((s, c) => s + slotLen(c), 0); }
 
 // Dibuja un frame del vídeo rellenando el lienzo (tipo "cover"), respetando
 // el encuadre del clip: fx/fy van de -1 a 1 y mueven el recorte dentro del hueco
@@ -217,28 +225,34 @@ function render() {
   document.body.classList.toggle("fmt-story", state.format === "story");
 
   renderSeg($("segFormat"), [
-    ["story", "Historia<small>9:16 · 1080×1920</small>"],
-    ["post", "Publicación<small>4:5 · 1080×1350</small>"],
+    ["story", "Historia<small>9:16 · hasta 1 min</small>"],
+    ["post", "Publicación<small>4:5 · hasta 3 min</small>"],
   ], state.format, "format");
   renderSeg($("segDur"), DURS.map((d) => [d, d + " s"]), state.dur, "dur");
   renderSeg($("segTrans"), Object.entries(TRANSITIONS), state.trans, "trans");
 
   const tl = buildTimeline();
   const total = tl.reduce((s, e) => s + e.len, 0);
+  const max = FORMATS[state.format].max;
+  const over = rawTotal() > max + 0.05;
   const loading = state.clips.some((c) => c.loading);
   $("sumCount").textContent = `${tl.length} clip${tl.length === 1 ? "" : "s"}` + (loading ? " · cargando…" : "");
-  $("sumTotal").textContent = fmtTime(total);
-  $("sumTotal").classList.toggle("warn", total > 60.5);
-  $("sumTotal").title = total > 60.5 ? "Más de 1 minuto: Instagram lo partirá en varias historias" : "";
+  $("sumTotal").textContent = `${fmtTime(total)} / ${fmtTime(max)}`;
+  $("sumTotal").classList.toggle("warn", over);
+  $("hint").textContent = over
+    ? `Te pasas de ${fmtTime(max)}: se corta ahí y los clips en gris no entran. Quita alguno o baja la duración por clip.`
+    : "Toca un clip para elegir el trozo y el encuadre. Mantén pulsado para moverlo.";
+  $("hint").classList.toggle("warn", over);
   $("btnPreview").disabled = !tl.length || loading;
   $("btnExport").disabled = !tl.length || loading;
 
-  renderGrid();
+  renderGrid(tl);
 }
 
-function renderGrid() {
+function renderGrid(tl = buildTimeline()) {
   const grid = $("grid");
   grid.innerHTML = "";
+  const lens = new Map(tl.map((e) => [e.clip, e.len]));
   state.clips.forEach((clip, i) => {
     const t = document.createElement("div");
     t.className = "tile";
@@ -257,9 +271,15 @@ function renderGrid() {
     t.appendChild(num);
     if (!clip.loading && !clip.error) {
       const len = document.createElement("span");
-      const l = slotLen(clip);
-      len.className = "len" + (l < state.dur - 0.01 ? " short" : "");
-      len.textContent = l.toFixed(1).replace(".", ",") + " s";
+      const l = lens.get(clip);
+      if (l == null) {
+        t.classList.add("out");
+        len.className = "len";
+        len.textContent = "no entra";
+      } else {
+        len.className = "len" + (l < state.dur - 0.01 ? " short" : "");
+        len.textContent = l.toFixed(1).replace(".", ",") + " s";
+      }
       t.appendChild(len);
     }
     grid.appendChild(t);
