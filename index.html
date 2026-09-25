@@ -12,44 +12,59 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/styles.css?v=4">
+<link rel="stylesheet" href="css/styles.css?v=6">
 </head>
 <body class="fmt-story">
 
 <header class="top">
-  <div class="brand">CUADRA</div>
-  <button id="btnClear" class="ghost" hidden>Vaciar</button>
+  <div class="proj-btn">
+    <span class="brand">CUADRA</span>
+    <span id="projName" class="proj-name"></span>
+  </div>
+  <div class="top-actions">
+    <button id="btnDrafts" class="chip">Borradores</button>
+    <button id="btnSaveDraft" class="chip accent">Guardar</button>
+  </div>
 </header>
 
 <main>
   <section id="empty" class="empty">
     <div class="empty-art" aria-hidden="true"><i></i><i></i><i></i></div>
     <h1>Clips cortos → un vídeo de 1 min</h1>
-    <p>Elige los vídeos de la galería. CUADRA los encuadra, los une con transición y te lo saca en 1080.</p>
+    <p>Elige los vídeos de la galería. CUADRA los ordena por hora, los encuadra, los une con transición y te lo saca en 1080.</p>
     <label class="btn primary big">Añadir clips<input type="file" id="fileInput" accept="video/*" multiple hidden></label>
   </section>
 
   <section id="project" hidden>
-    <div class="settings">
-      <div class="seg format-seg" id="segFormat">
-        <button data-v="story">Historia<small>9:16 · hasta 1 min</small></button>
-        <button data-v="post">Publicación<small>4:5 · hasta 3 min</small></button>
-      </div>
-      <div class="row"><span class="lbl">Cada clip</span>
-        <div class="seg" id="segDur">
-          <button data-v="4">4 s</button><button data-v="8">8 s</button>
+    <details id="settingsBox" class="settings" open>
+      <summary><span class="sum-title">Ajustes del vídeo</span><span id="settingsSum" class="sum-text"></span></summary>
+      <div class="settings-body">
+        <div class="seg format-seg" id="segFormat"></div>
+        <div class="row"><span class="lbl">Cada clip</span><div class="seg" id="segDur"></div></div>
+        <div class="row beat-row" id="beatRow" hidden>
+          <div class="beat">
+            <button id="btnTap" class="tap">Toca al ritmo</button>
+            <div class="bpm">
+              <button id="bpmMinus" aria-label="Menos BPM">−</button>
+              <div><output id="bpmOut">120</output><small>BPM</small></div>
+              <button id="bpmPlus" aria-label="Más BPM">+</button>
+            </div>
+          </div>
+          <div class="seg" id="segBeats"></div>
+          <p class="sub">Pon la canción y toca al ritmo 4-8 veces. En Instagram, arranca la canción justo en un golpe para que los cortes caigan a ritmo.</p>
         </div>
+        <div class="row"><span class="lbl">Transición</span><div class="seg" id="segTrans"></div></div>
+        <div class="row"><span class="lbl">Igualar tono</span><div class="seg" id="segTone"></div></div>
+        <div class="row"><span class="lbl">Look</span><div class="seg" id="segLook"></div></div>
+        <div class="row"><span class="lbl">Entrada y salida</span><div class="seg" id="segFades"></div></div>
       </div>
-      <div class="row"><span class="lbl">Transición</span>
-        <div class="seg" id="segTrans"></div>
-      </div>
-      <div class="row"><span class="lbl">Igualar tono</span>
-        <div class="seg" id="segTone"></div>
-      </div>
-    </div>
+    </details>
 
     <div class="summary"><span id="sumCount"></span><span id="sumTotal" class="total"></span></div>
-    <p class="hint" id="hint">Toca un clip para elegir el trozo y el encuadre. Mantén pulsado para moverlo.</p>
+    <div class="tools">
+      <p class="hint" id="hint"></p>
+      <button id="btnSort" class="chip">⇅ Por hora</button>
+    </div>
     <div id="grid" class="grid"></div>
     <label class="add-more">+ Añadir más clips<input type="file" id="fileInput2" accept="video/*" multiple hidden></label>
   </section>
@@ -60,7 +75,7 @@
   <button id="btnExport" class="btn primary">Exportar 1080</button>
 </footer>
 
-<!-- Editor de un clip: trozo, frame exacto y encuadre -->
+<!-- Editor de un clip -->
 <div id="editor" class="sheet" hidden>
   <div class="sheet-head">
     <span id="edTitle" class="sheet-title"></span>
@@ -68,29 +83,69 @@
   </div>
   <div class="stage" id="edStage">
     <canvas id="edCanvas"></canvas>
-    <div class="stage-hint">Arrastra para encuadrar</div>
+    <div class="stage-hint" id="edHint"></div>
+  </div>
+  <div class="tabs" id="edTabs">
+    <button data-tab="trozo">Trozo</button>
+    <button data-tab="encuadre">Encuadre</button>
+    <button data-tab="luz">Luz</button>
+    <button data-tab="tapar">Tapar</button>
   </div>
   <div class="ctrl">
-    <div class="ctrl-row"><span>Empieza en</span><output id="edStartOut"></output></div>
-    <input type="range" id="edStart" min="0" max="0" step="0.001" value="0">
-    <div class="frame-btns">
-      <button data-step="-1">‹ frame</button>
-      <button id="edPlay">▶ Probar</button>
-      <button data-step="1">frame ›</button>
+    <div class="pane" data-pane="trozo">
+      <div class="ctrl-row"><span>Empieza en</span><output id="edStartOut"></output></div>
+      <input type="range" id="edStart" min="0" max="0" step="0.001" value="0">
+      <div class="frame-btns">
+        <button data-step="-1">‹ frame anterior</button>
+        <button data-step="1">frame siguiente ›</button>
+      </div>
+      <div class="ctrl-row"><span>Velocidad</span></div>
+      <div class="seg" id="edSpeed">
+        <button data-v="0.5">0,5× lenta</button><button data-v="1">1× normal</button><button data-v="2">2× rápida</button>
+      </div>
     </div>
-    <div class="ctrl-row"><span>Zoom</span><output id="edZoomOut"></output></div>
-    <input type="range" id="edZoom" min="1" max="2.5" step="0.01" value="1">
-    <div class="ctrl-row"><span>Velocidad</span></div>
-    <div class="seg" id="edSpeed">
-      <button data-v="0.5">0,5× lenta</button><button data-v="1">1× normal</button><button data-v="2">2× rápida</button>
+
+    <div class="pane" data-pane="encuadre" hidden>
+      <div class="ctrl-row"><span>Zoom</span><output id="edZoomOut"></output></div>
+      <input type="range" id="edZoom" min="1" max="2.5" step="0.01" value="1">
+      <div class="ctrl-row"><span>Zoom lento</span><button id="kbAll" class="link">Aplicar a todos</button></div>
+      <div class="seg" id="edKb">
+        <button data-v="none">No</button><button data-v="in">Acercar</button><button data-v="out">Alejar</button>
+      </div>
+      <button id="edCenter" class="wide">Centrar encuadre</button>
     </div>
-    <div class="ed-actions">
-      <button id="edLeft" aria-label="Mover a la izquierda">←</button>
-      <button id="edCenter">Centrar</button>
-      <button id="edDup">Duplicar</button>
-      <button id="edDelete" class="danger">Quitar</button>
-      <button id="edRight" aria-label="Mover a la derecha">→</button>
+
+    <div class="pane" data-pane="luz" hidden>
+      <div class="ctrl-row"><span>Brillo</span><output id="edBrightOut"></output></div>
+      <input type="range" id="edBright" min="-100" max="100" step="1" value="0">
+      <div class="ctrl-row"><span>Calidez</span><output id="edWarmOut"></output></div>
+      <input type="range" id="edWarm" min="-100" max="100" step="1" value="0" class="warm">
+      <div class="ctrl-row"><span>Saturación</span><output id="edSatOut"></output></div>
+      <input type="range" id="edSat" min="0" max="200" step="1" value="100">
+      <div class="two">
+        <button id="lightReset">Restablecer</button>
+        <button id="lightAll">Aplicar a todos</button>
+      </div>
     </div>
+
+    <div class="pane" data-pane="tapar" hidden>
+      <p class="pane-note">Pon un recuadro encima de la matrícula y saldrá pixelada. Si el coche o la cámara se mueven, colócalo también en «Final» y seguirá el recorrido.</p>
+      <div class="seg" id="edKey">
+        <button data-v="start">Inicio del clip</button><button data-v="end">Final del clip</button>
+      </div>
+      <div class="two">
+        <button id="zoneAdd">+ Añadir recuadro</button>
+        <button id="zoneDel" class="danger">Quitar recuadro</button>
+      </div>
+      <p class="pane-note small" id="zoneCount"></p>
+    </div>
+  </div>
+  <div class="ed-actions">
+    <button id="edLeft" aria-label="Mover a la izquierda">←</button>
+    <button id="edPlay">▶ Probar</button>
+    <button id="edDup">Duplicar</button>
+    <button id="edDelete" class="danger">Quitar</button>
+    <button id="edRight" aria-label="Mover a la derecha">→</button>
   </div>
 </div>
 
@@ -112,11 +167,25 @@
   </div>
 </div>
 
+<!-- Borradores -->
+<div id="projects" class="sheet" hidden>
+  <div class="sheet-head">
+    <span class="sheet-title">Borradores</span>
+    <button id="projClose" class="btn small">Cerrar</button>
+  </div>
+  <div id="projList" class="proj-list"></div>
+  <div class="proj-foot">
+    <button id="projNew" class="btn primary">+ Empezar vídeo nuevo</button>
+  </div>
+</div>
+
+<div id="ask" class="ask" hidden><div class="ask-box"><p id="askText"></p><div id="askBtns" class="ask-btns"></div></div></div>
+
 <div id="toast" class="toast" hidden><span id="toastText"></span><button id="toastBtn"></button></div>
 
 <!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
 <div id="vpool" aria-hidden="true"></div>
 
-<script src="js/app.js?v=4"></script>
+<script src="js/app.js?v=6"></script>
 </body>
 </html>

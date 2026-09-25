@@ -6,24 +6,36 @@
 
 // max = duración máxima en segundos (límites de Instagram): lo que pase se corta
 const FORMATS = {
-  story: { w: 1080, h: 1920, max: 60 },
-  post: { w: 1080, h: 1350, max: 180 },
+  story: { w: 1080, h: 1920, max: 60, label: "Historia" },
+  post: { w: 1080, h: 1350, max: 180, label: "Publicación" },
 };
-const DURS = [4, 8];
-const TRANSITIONS = {
-  cut: "Corte",
-  fade: "Fundido",
-  black: "Negro",
-  slide: "Deslizar",
-  zoom: "Zoom",
+const DUR_MODES = { 4: "4 s", 8: "8 s", beat: "Ritmo" };
+const BEATS = [2, 4, 8];
+const TRANSITIONS = { cut: "Corte", fade: "Fundido", black: "Negro", slide: "Deslizar", zoom: "Zoom" };
+const TONES = { off: "No", soft: "Suave", full: "Fuerte" };
+const TONE_STRENGTH = { off: 0, soft: 0.55, full: 1 };
+const FADES = { off: "No", on: "Desde negro" };
+// Looks para todo el vídeo: se aplican después de igualar el tono
+const LOOKS = {
+  natural: { label: "Natural" },
+  vivo: { label: "Vivo", sat: 1.25, con: 1.06 },
+  calido: { label: "Cálido", warm: 0.45, sat: 1.08, con: 1.04 },
+  cine: { label: "Cine", warm: 0.12, sat: 0.82, con: 1.1, lift: 0.05, vig: 0.35 },
+  frio: { label: "Frío", warm: -0.45, sat: 0.95, con: 1.04 },
+  bn: { label: "B/N", sat: 0, con: 1.15, vig: 0.25 },
 };
+const KB = { none: "No", in: "Acercar", out: "Alejar" };
+const KB_AMOUNT = 0.12;          // zoom lento: 12 % a lo largo del clip
 const FPS = 30;
 const FRAME = 1 / FPS;
-const TRANS_LEN = 0.5;          // segundos que dura cada transición
-const BITRATE = 12_000_000;     // 12 Mbps: buena calidad en 1080 sin pesar demasiado
+const TRANS_LEN = 0.5;           // segundos que dura cada transición
+const FADE_LEN = 0.6;            // fundido de entrada y salida
+const BITRATE = 12_000_000;      // 12 Mbps: buena calidad en 1080 sin pesar demasiado
 const MIN_SLOT = 0.5;
 
-const state = { clips: [], format: "story", dur: 4, trans: "fade", tone: "soft" };
+// Ajustes de cada proyecto (y valores de uno nuevo)
+const DEFAULTS = { format: "story", durMode: "4", bpm: 120, beats: 4, trans: "fade", tone: "soft", look: "natural", fades: "on" };
+const state = { projectId: null, name: "", saved: false, clips: [], ...DEFAULTS };
 let nextId = 1;
 
 const $ = (id) => document.getElementById(id);
@@ -77,19 +89,37 @@ function dropVideo(v) {
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+const pad2 = (n) => String(n).padStart(2, "0");
 
 function fmtTime(s) {
   s = Math.max(0, Math.round(s));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return `${Math.floor(s / 60)}:${pad2(s % 60)}`;
 }
 const fmtSec = (s) => s.toFixed(2).replace(".", ",") + " s";
+const fmtNum = (x, d = 1) => x.toFixed(d).replace(".", ",");
+const fmtSpeed = (x) => String(x).replace(".", ",") + "×";
+const fmtClock = (ms) => { const d = new Date(ms); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const fmtDay = (ms) => new Date(ms).toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
+
+// Duración de cada clip: fija (4 / 8 s) o sacada del ritmo de la canción
+function clipDur() {
+  return state.durMode === "beat" ? state.beats * 60 / state.bpm : Number(state.durMode);
+}
 
 // Con velocidad, un hueco de 4 s a 2× consume 8 s de vídeo original ("metraje")
-function maxStart(clip) { return Math.max(0, clip.duration - state.dur * clip.speed); }
-function slotLen(clip) { return Math.max(MIN_SLOT, Math.min(state.dur, (clip.duration - clip.start) / clip.speed)); }
+function maxStart(clip) { return Math.max(0, clip.duration - clipDur() * clip.speed); }
+function slotLen(clip) { return Math.max(MIN_SLOT, Math.min(clipDur(), (clip.duration - clip.start) / clip.speed)); }
 function footage(clip) { return slotLen(clip) * clip.speed; }
-const fmtSpeed = (x) => String(x).replace(".", ",") + "×";
 function usable() { return state.clips.filter((c) => !c.loading && !c.error && c.duration > 0); }
+function clampStarts() { for (const c of state.clips) c.start = Math.min(c.start, maxStart(c)); }
+
+function normalizeClip(c) {
+  return Object.assign(
+    { zoom: 1, fx: 0, fy: 0, speed: 1, stats: null, date: null, kb: "none", zones: [], loading: false, error: false },
+    c,
+    { adj: Object.assign({ bright: 0, warm: 0, sat: 1 }, c.adj) },
+  );
+}
 
 // Monta la línea de tiempo hasta el máximo del formato: el último clip que
 // entra se recorta para clavar el límite y los que sobran se quedan fuera.
@@ -108,34 +138,93 @@ function buildTimeline() {
 
 function rawTotal() { return usable().reduce((s, c) => s + slotLen(c), 0); }
 
-// Dibuja un frame del vídeo rellenando el lienzo (tipo "cover"), respetando
-// el encuadre del clip: fx/fy van de -1 a 1 y mueven el recorte dentro del hueco
-// que sobra; zoom amplía por encima del relleno mínimo.
+// ---------------------------------------------------------------- dibujo de un clip
+
+// Rectángulo donde se pinta el vídeo para rellenar el lienzo (tipo "cover"), con el
+// encuadre del clip: fx/fy van de -1 a 1 y mueven el recorte dentro del hueco que
+// sobra; zoom amplía; el zoom lento (kb) va creciendo según el progreso p del clip.
+function coverRect(vw, vh, W, H, clip, o = {}) {
+  const p = clamp(o.p || 0, 0, 1);
+  const kb = clip.kb === "in" ? 1 + KB_AMOUNT * ease(p) : clip.kb === "out" ? 1 + KB_AMOUNT * (1 - ease(p)) : 1;
+  const s = Math.max(W / vw, H / vh) * clip.zoom * kb * (o.scale || 1);
+  const dw = vw * s, dh = vh * s;
+  return {
+    x: (W - dw) / 2 + clip.fx * (dw - W) / 2 + (o.dx || 0),
+    y: (H - dh) / 2 + clip.fy * (dh - H) / 2,
+    dw, dh,
+  };
+}
+
 function drawCover(ctx, v, W, H, clip, o = {}) {
   const vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh || v.readyState < 2) return;
-  const s = Math.max(W / vw, H / vh) * clip.zoom * (o.scale || 1);
-  const dw = vw * s, dh = vh * s;
-  const x = (W - dw) / 2 + clip.fx * (dw - W) / 2 + (o.dx || 0);
-  const y = (H - dh) / 2 + clip.fy * (dh - H) / 2;
+  const r = coverRect(vw, vh, W, H, clip, o);
   ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
   const g = o.raw ? null : gradeParams(clip);
-  if (g && grader.render(v, x, y, dw, dh, W, H, g)) ctx.drawImage(grader.canvas, 0, 0, W, H);
-  else ctx.drawImage(v, x, y, dw, dh);
+  if (g && grader.render(v, r.x, r.y, r.dw, r.dh, W, H, g)) ctx.drawImage(grader.canvas, 0, 0, W, H);
+  else ctx.drawImage(v, r.x, r.y, r.dw, r.dh);
   ctx.globalAlpha = 1;
+  if (!o.raw) for (const z of clip.zones) {
+    const q = zoneCanvasRect(z, r, o.p || 0);
+    pixelate(ctx, q.x, q.y, q.w, q.h, W, H);
+  }
 }
 
-// ---------------------------------------------------------------- igualar tono
+// ---------------------------------------------------------------- tapar matrículas
 
-// Cada clip se analiza (media de R, G, B y contraste en varios frames del trozo usado).
-// El objetivo es la mediana de todos los clips del vídeo, y cada clip se corrige hacia ahí:
-// color = (color - media_clip) * contraste + media_objetivo. Así los oscuros suben, los
-// quemados bajan y los que tiran a azul o amarillo se acercan al tono común.
-const TONES = { off: "No", soft: "Suave", full: "Fuerte" };
-const TONE_STRENGTH = { off: 0, soft: 0.55, full: 1 };
+// Cada zona se guarda en coordenadas del vídeo original (0–1), así sigue a la imagen
+// aunque cambie el encuadre o el zoom. Si tiene posición final (x2/y2), se mueve en
+// línea recta del inicio al final del trozo usado.
+function zoneAt(z, p) {
+  return {
+    x: z.x2 == null ? z.x : z.x + (z.x2 - z.x) * p,
+    y: z.y2 == null ? z.y : z.y + (z.y2 - z.y) * p,
+    w: z.w, h: z.h,
+  };
+}
+function zoneCanvasRect(z, r, p) {
+  const q = zoneAt(z, clamp(p, 0, 1));
+  return { x: r.x + q.x * r.dw, y: r.y + q.y * r.dh, w: q.w * r.dw, h: q.h * r.dh };
+}
+
+const pixCanvas = document.createElement("canvas");
+const pixCtx = pixCanvas.getContext("2d");
+// Mosaico: cada cuadro mide ~1/3,5 del alto de la zona. En una matrícula cada letra se queda
+// en 2×2 o 3×3 cuadros: se ve el pixelado típico pero no se puede leer.
+function pixelate(ctx, x, y, w, h, W, H) {
+  const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+  const x1 = Math.min(W, Math.ceil(x + w)), y1 = Math.min(H, Math.ceil(y + h));
+  const pw = x1 - x0, ph = y1 - y0;
+  if (pw < 2 || ph < 2) return;
+  const block = Math.max(W / 140, h / 3.5);
+  const sw = Math.max(1, Math.round(pw / block)), sh = Math.max(1, Math.round(ph / block));
+  pixCanvas.width = sw;
+  pixCanvas.height = sh;
+  pixCtx.drawImage(ctx.canvas, x0, y0, pw, ph, 0, 0, sw, sh);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixCanvas, 0, 0, sw, sh, x0, y0, pw, ph);
+  ctx.restore();
+}
+
+function drawVignette(ctx, W, H, amount) {
+  if (!amount) return;
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) / 2);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, `rgba(0,0,0,${amount})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ---------------------------------------------------------------- color: tono, look y luz
+
+// Igualar tono: cada clip se analiza (media de R, G, B y contraste en varios frames del
+// trozo usado). El objetivo es la mediana de todos los clips del vídeo, y cada clip se
+// corrige hacia ahí: color = (color - media_clip) * contraste + media_objetivo.
 let toneTarget = null;
 
-const statsKey = (clip) => `${clip.start.toFixed(3)}|${state.dur}|${clip.speed}`;
+const statsKey = (clip) => `${clip.start.toFixed(3)}|${clipDur().toFixed(3)}|${clip.speed}`;
 const median = (arr) => { const a = [...arr].sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 
 async function computeStats(v, clip) {
@@ -167,17 +256,26 @@ function computeToneTarget(tl) {
   };
 }
 
+// Junta en un solo paso del shader: igualar tono + luz manual del clip + look del vídeo
 function gradeParams(clip) {
+  const look = LOOKS[state.look] || LOOKS.natural;
   const strength = TONE_STRENGTH[state.tone];
-  if (!strength || !toneTarget || !clip.stats) return null;
+  const tone = strength && toneTarget && clip.stats;
   const s = clip.stats;
-  return {
-    m: s.mean,
+  const g = {
+    m: tone ? s.mean : [0, 0, 0],
     // Límites para no destrozar clips muy distintos (un atardecer no debe volverse gris)
-    t: s.mean.map((m, ch) => m + clamp(toneTarget.mean[ch] - m, -0.18, 0.18)),
-    k: clamp(toneTarget.std / Math.max(s.std, 0.02), 0.8, 1.3),
-    s: strength,
+    t: tone ? s.mean.map((m, ch) => m + clamp(toneTarget.mean[ch] - m, -0.18, 0.18)) : [0, 0, 0],
+    k: tone ? clamp(toneTarget.std / Math.max(s.std, 0.02), 0.8, 1.3) : 1,
+    s: tone ? strength : 0,
+    bright: clip.adj.bright,
+    warm: (look.warm || 0) + clip.adj.warm,
+    sat: (look.sat == null ? 1 : look.sat) * clip.adj.sat,
+    con: look.con || 1,
+    lift: look.lift || 0,
   };
+  const neutral = !g.s && !g.bright && !g.warm && g.sat === 1 && g.con === 1 && !g.lift;
+  return neutral ? null : g;
 }
 
 // Recalcula lo que haya cambiado (trozo elegido o duración) antes de reproducir/exportar
@@ -201,8 +299,8 @@ async function ensureStats(onProgress) {
   }
 }
 
-// Aplica la corrección con la GPU (WebGL): el vídeo se pinta en un canvas del tamaño
-// de salida con el shader de color, y ese canvas se copia al lienzo principal.
+// El color se hace con la GPU (WebGL): el vídeo se pinta en un canvas del tamaño
+// de salida con el shader, y ese canvas se copia al lienzo principal.
 const grader = {
   canvas: null, gl: null, ok: null,
   init() {
@@ -213,9 +311,23 @@ const grader = {
     const p = gl.createProgram();
     gl.attachShader(p, sh(gl.VERTEX_SHADER,
       "attribute vec2 pos; attribute vec2 tc; varying vec2 uv; void main(){ uv = tc; gl_Position = vec4(pos, 0.0, 1.0); }"));
-    gl.attachShader(p, sh(gl.FRAGMENT_SHADER,
-      "precision mediump float; varying vec2 uv; uniform sampler2D tex; uniform vec3 m; uniform vec3 t; uniform float k; uniform float s;" +
-      "void main(){ vec3 c = texture2D(tex, uv).rgb; vec3 o = clamp((c - m) * k + t, 0.0, 1.0); gl_FragColor = vec4(mix(c, o, s), 1.0); }"));
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, `
+      precision mediump float;
+      varying vec2 uv;
+      uniform sampler2D tex;
+      uniform vec3 m; uniform vec3 t; uniform float k; uniform float s;
+      uniform float bright; uniform float warm; uniform float sat; uniform float con; uniform float lift;
+      void main() {
+        vec3 c = texture2D(tex, uv).rgb;
+        c = mix(c, clamp((c - m) * k + t, 0.0, 1.0), s);
+        c += bright;
+        c += vec3(warm, warm * 0.3, -warm) * 0.12;
+        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = mix(vec3(l), c, sat);
+        c = (c - 0.5) * con + 0.5;
+        c = lift + c * (1.0 - lift);
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+      }`));
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return (this.ok = false);
     gl.useProgram(p);
@@ -232,7 +344,8 @@ const grader = {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    this.u = { m: gl.getUniformLocation(p, "m"), t: gl.getUniformLocation(p, "t"), k: gl.getUniformLocation(p, "k"), s: gl.getUniformLocation(p, "s") };
+    this.u = {};
+    for (const n of ["m", "t", "k", "s", "bright", "warm", "sat", "con", "lift"]) this.u[n] = gl.getUniformLocation(p, n);
     this.gl = gl;
     return (this.ok = true);
   },
@@ -249,8 +362,7 @@ const grader = {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([X0, Y0, 0, 0, X1, Y0, 1, 0, X0, Y1, 0, 1, X1, Y1, 1, 1]), gl.STREAM_DRAW);
     gl.uniform3fv(this.u.m, g.m);
     gl.uniform3fv(this.u.t, g.t);
-    gl.uniform1f(this.u.k, g.k);
-    gl.uniform1f(this.u.s, g.s);
+    for (const n of ["k", "s", "bright", "warm", "sat", "con", "lift"]) gl.uniform1f(this.u[n], g[n]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return true;
   },
@@ -265,21 +377,62 @@ function fitCanvas(canvas, stage) {
   canvas.style.height = Math.floor(canvas.height * k) + "px";
 }
 
-// ---------------------------------------------------------------- preferencias
+// ---------------------------------------------------------------- hora de grabación
 
-function loadPrefs() {
+// Los .mov/.mp4 del iPhone llevan dentro (caja "mvhd" del "moov") la fecha de creación.
+// Se leen solo las cabeceras con file.slice, sin cargar el vídeo entero en memoria.
+const MP4_EPOCH = Date.UTC(1904, 0, 1);
+
+async function readCreationDate(file) {
   try {
-    const p = JSON.parse(localStorage.getItem("cuadra-prefs") || "{}");
-    if (FORMATS[p.format]) state.format = p.format;
-    if (DURS.includes(p.dur)) state.dur = p.dur;
-    if (TRANSITIONS[p.trans]) state.trans = p.trans;
-    if (p.tone in TONE_STRENGTH) state.tone = p.tone;
-  } catch (e) { /* sin almacenamiento, valores por defecto */ }
+    const size = file.size;
+    let off = 0;
+    for (let guard = 0; guard < 200 && off + 8 <= size; guard++) {
+      const h = new DataView(await file.slice(off, off + 16).arrayBuffer());
+      let len = h.getUint32(0), hl = 8;
+      const type = String.fromCharCode(h.getUint8(4), h.getUint8(5), h.getUint8(6), h.getUint8(7));
+      if (len === 1) { len = Number(h.getBigUint64(8)); hl = 16; } else if (len === 0) len = size - off;
+      if (len < 8) return null;
+      if (type === "moov") {
+        const end = off + Math.min(len, 16 * 1024 * 1024);
+        const dv = new DataView(await file.slice(off + hl, end).arrayBuffer());
+        for (let o = 0; o + 8 <= dv.byteLength;) {
+          const bl = dv.getUint32(o);
+          if (bl < 8) break;
+          if (dv.getUint32(o + 4) === 0x6d766864 /* mvhd */) {
+            const secs = dv.getUint8(o + 8) === 1 ? Number(dv.getBigUint64(o + 12)) : dv.getUint32(o + 12);
+            const ms = MP4_EPOCH + secs * 1000;
+            // Fechas absurdas (0 o futuras) = el vídeo no la trae
+            return ms > Date.UTC(2005, 0, 1) && ms < Date.now() + 86400000 ? ms : null;
+          }
+          o += bl;
+        }
+        return null;
+      }
+      off += len;
+    }
+  } catch (e) { /* formato raro: sin fecha */ }
+  return null;
 }
-function savePrefs() {
-  try {
-    localStorage.setItem("cuadra-prefs", JSON.stringify({ format: state.format, dur: state.dur, trans: state.trans, tone: state.tone }));
-  } catch (e) { /* nada */ }
+
+// Orden estable: primero los que tienen hora, en orden; los que no, detrás tal cual
+function byDate(a, b) {
+  if (a.date == null && b.date == null) return 0;
+  if (a.date == null) return 1;
+  if (b.date == null) return -1;
+  return a.date - b.date;
+}
+
+function sortByDate() {
+  const dated = state.clips.filter((c) => c.date != null).length;
+  if (!dated) { showToast("Estos vídeos no traen la hora de grabación", "Vale", () => {}, 4000); return; }
+  const before = state.clips.slice();
+  state.clips.sort(byDate);
+  render();
+  showToast(`Ordenados por hora de grabación${dated < state.clips.length ? ` (${state.clips.length - dated} sin hora, al final)` : ""}`, "Deshacer", () => {
+    state.clips = before.filter((c) => state.clips.includes(c));
+    render();
+  }, 6000);
 }
 
 // ---------------------------------------------------------------- añadir clips
@@ -287,10 +440,12 @@ function savePrefs() {
 async function addFiles(fileList) {
   const files = [...fileList].filter((f) => (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|3gp)$/i.test(f.name));
   if (!files.length) return;
-  const added = files.map((f) => ({
+  // La hora se lee antes para que la tanda entre ya ordenada
+  const dates = await Promise.all(files.map(readCreationDate));
+  const added = files.map((f, i) => normalizeClip({
     id: nextId, fileKey: nextId++, file: f, url: URL.createObjectURL(f), name: f.name,
-    duration: 0, thumb: "", start: 0, zoom: 1, fx: 0, fy: 0, speed: 1, loading: true, error: false,
-  }));
+    duration: 0, thumb: "", start: 0, date: dates[i], loading: true,
+  })).sort(byDate);
   state.clips.push(...added);
   render();
   // De uno en uno para no reventar la memoria del móvil con muchos decodificadores a la vez
@@ -335,6 +490,9 @@ function snapshot(v, clip) {
 function releaseUrl(url) {
   if (!state.clips.some((c) => c.url === url) && !(undo && undo.clip.url === url)) URL.revokeObjectURL(url);
 }
+function releaseAllUrls() {
+  new Set(state.clips.map((c) => c.url)).forEach((u) => URL.revokeObjectURL(u));
+}
 
 let undo = null;
 function removeClip(clip) {
@@ -372,8 +530,12 @@ function showToast(text, action, onAction, ms = 0) {
 }
 function hideToast() { clearTimeout(toastTimer); $("toast").hidden = true; }
 
+function cloneClip(clip) {
+  return { ...clip, id: nextId++, stats: null, adj: { ...clip.adj }, zones: clip.zones.map((z) => ({ ...z })) };
+}
+
 function duplicateClip(clip) {
-  const copy = { ...clip, id: nextId++, stats: null };
+  const copy = cloneClip(clip);
   // El duplicado arranca justo donde acaba el original, si queda vídeo
   copy.start = Math.min(clip.start + footage(clip), maxStart(clip));
   state.clips.splice(state.clips.indexOf(clip) + 1, 0, copy);
@@ -382,21 +544,22 @@ function duplicateClip(clip) {
 
 // ---------------------------------------------------------------- render
 
-function renderSeg(el, items, current, key) {
+function renderSeg(el, items, current, onPick) {
   el.innerHTML = "";
   for (const [v, label] of items) {
     const b = document.createElement("button");
     b.dataset.v = v;
     b.innerHTML = label;
     b.classList.toggle("on", String(current) === String(v));
-    b.addEventListener("click", () => {
-      state[key] = key === "dur" ? Number(v) : v;
-      if (key === "dur") for (const c of state.clips) c.start = Math.min(c.start, maxStart(c));
-      savePrefs();
-      render();
-    });
+    b.addEventListener("click", () => onPick(v));
     el.appendChild(b);
   }
+}
+
+function setSetting(key, value) {
+  state[key] = value;
+  if (key === "durMode" || key === "beats" || key === "bpm") clampStarts();
+  render();
 }
 
 function render() {
@@ -404,17 +567,29 @@ function render() {
   $("empty").hidden = has;
   $("project").hidden = !has;
   $("bar").hidden = !has;
-  $("btnClear").hidden = !has;
+  $("projName").textContent = state.saved ? state.name : "";
   document.body.classList.toggle("fmt-post", state.format === "post");
   document.body.classList.toggle("fmt-story", state.format === "story");
 
   renderSeg($("segFormat"), [
     ["story", "Historia<small>9:16 · hasta 1 min</small>"],
     ["post", "Publicación<small>4:5 · hasta 3 min</small>"],
-  ], state.format, "format");
-  renderSeg($("segDur"), DURS.map((d) => [d, d + " s"]), state.dur, "dur");
-  renderSeg($("segTrans"), Object.entries(TRANSITIONS), state.trans, "trans");
-  renderSeg($("segTone"), Object.entries(TONES), state.tone, "tone");
+  ], state.format, (v) => setSetting("format", v));
+  renderSeg($("segDur"), Object.entries(DUR_MODES), state.durMode, (v) => setSetting("durMode", v));
+  $("beatRow").hidden = state.durMode !== "beat";
+  $("bpmOut").textContent = state.bpm;
+  renderSeg($("segBeats"), BEATS.map((n) => [n, `${n} golpes<small>${fmtNum(n * 60 / state.bpm)} s</small>`]),
+    state.beats, (v) => setSetting("beats", Number(v)));
+  renderSeg($("segTrans"), Object.entries(TRANSITIONS), state.trans, (v) => setSetting("trans", v));
+  renderSeg($("segTone"), Object.entries(TONES), state.tone, (v) => setSetting("tone", v));
+  renderSeg($("segLook"), Object.entries(LOOKS).map(([k, l]) => [k, l.label]), state.look, (v) => setSetting("look", v));
+  renderSeg($("segFades"), Object.entries(FADES), state.fades, (v) => setSetting("fades", v));
+  $("settingsSum").textContent = [
+    FORMATS[state.format].label,
+    state.durMode === "beat" ? `${state.bpm} BPM` : DUR_MODES[state.durMode],
+    TRANSITIONS[state.trans],
+    LOOKS[state.look].label,
+  ].join(" · ");
 
   const tl = buildTimeline();
   toneTarget = computeToneTarget(tl);
@@ -427,7 +602,7 @@ function render() {
   $("sumTotal").classList.toggle("warn", over);
   $("hint").textContent = over
     ? `Te pasas de ${fmtTime(max)}: se corta ahí y los clips en gris no entran. Quita alguno o baja la duración por clip.`
-    : "Toca un clip para elegir el trozo y el encuadre. Mantén pulsado para moverlo.";
+    : "Toca un clip para editarlo. Mantén pulsado para moverlo.";
   $("hint").classList.toggle("warn", over);
   $("btnPreview").disabled = !tl.length || loading;
   $("btnExport").disabled = !tl.length || loading;
@@ -440,6 +615,7 @@ function renderGrid(tl = buildTimeline()) {
   const grid = $("grid");
   grid.innerHTML = "";
   const lens = new Map(tl.map((e) => [e.clip, e.len]));
+  const dur = clipDur();
   state.clips.forEach((clip, i) => {
     const t = document.createElement("div");
     t.className = "tile";
@@ -456,7 +632,17 @@ function renderGrid(tl = buildTimeline()) {
     num.className = "num";
     num.textContent = i + 1;
     t.appendChild(num);
+    if (clip.date != null) {
+      const time = document.createElement("span");
+      time.className = "time";
+      time.textContent = fmtClock(clip.date);
+      t.appendChild(time);
+    }
     if (!clip.loading && !clip.error) {
+      const marks = [];
+      if (clip.speed !== 1) marks.push(fmtSpeed(clip.speed));
+      if (clip.kb !== "none") marks.push("🔍");
+      if (clip.zones.length) marks.push("▦");
       const len = document.createElement("span");
       const l = lens.get(clip);
       if (l == null) {
@@ -464,13 +650,35 @@ function renderGrid(tl = buildTimeline()) {
         len.className = "len";
         len.textContent = "no entra";
       } else {
-        len.className = "len" + (l < state.dur - 0.01 ? " short" : "");
-        len.textContent = l.toFixed(1).replace(".", ",") + " s" + (clip.speed !== 1 ? " · " + fmtSpeed(clip.speed) : "");
+        len.className = "len" + (l < dur - 0.01 ? " short" : "");
+        len.textContent = [fmtNum(l) + " s", ...marks].join(" · ");
       }
       t.appendChild(len);
     }
     grid.appendChild(t);
   });
+}
+
+// ---------------------------------------------------------------- ritmo (BPM)
+
+// Tap tempo: tocando al ritmo de la canción se calcula el BPM con la media de los intervalos
+let taps = [];
+function tapTempo() {
+  const now = performance.now();
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+  taps.push(now);
+  if (taps.length > 9) taps.shift();
+  const b = $("btnTap");
+  b.classList.remove("hit");
+  void b.offsetWidth;
+  b.classList.add("hit");
+  if (taps.length >= 3) {
+    const iv = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+    setSetting("bpm", clamp(Math.round(60000 / iv), 50, 220));
+    b.textContent = "Toca al ritmo";
+  } else {
+    b.textContent = "Sigue tocando…";
+  }
 }
 
 // ---------------------------------------------------------------- reordenar arrastrando
@@ -552,12 +760,14 @@ function setupGrid() {
 
 // ---------------------------------------------------------------- editor de clip
 
-const ed = { clip: null, v: null, raf: 0, playing: false, pending: null, seeking: false };
+const ed = { clip: null, v: null, raf: 0, playing: false, pending: null, seeking: false, tab: "trozo", key: "start", zone: -1 };
 
 async function openEditor(id) {
   const clip = state.clips.find((c) => c.id === id);
   if (!clip || clip.loading || clip.error) return;
   ed.clip = clip;
+  ed.key = "start";
+  ed.zone = clip.zones.length ? 0 : -1;
   const f = FORMATS[state.format];
   const cv = $("edCanvas");
   cv.width = f.w / 2;
@@ -578,29 +788,114 @@ async function openEditor(id) {
   if (ed.clip === clip) edDraw();
 }
 
+const HINTS = {
+  trozo: "Arrastra para encuadrar",
+  encuadre: "Arrastra para encuadrar",
+  luz: "",
+  tapar: "Arrastra el recuadro · esquina para el tamaño",
+};
+
 function updateEditorUI() {
   const clip = ed.clip;
   const i = state.clips.indexOf(clip);
   const n = state.clips.length;
-  $("edTitle").textContent = `Clip ${i + 1} de ${n}`;
+  $("edTitle").textContent = `Clip ${i + 1} de ${n}` + (clip.date != null ? ` · ${fmtClock(clip.date)}` : "");
+  document.querySelectorAll("#edTabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === ed.tab));
+  document.querySelectorAll(".pane").forEach((p) => { p.hidden = p.dataset.pane !== ed.tab; });
+  $("edHint").textContent = HINTS[ed.tab];
+  $("edHint").hidden = !HINTS[ed.tab];
+
+  // Trozo
   const s = $("edStart");
   s.max = maxStart(clip);
   s.value = clip.start;
   s.disabled = maxStart(clip) <= 0;
   $("edStartOut").textContent = `${fmtSec(clip.start)} → ${fmtSec(clip.start + footage(clip))}`;
   document.querySelectorAll("#edSpeed button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === clip.speed));
+  // Encuadre
   $("edZoom").value = clip.zoom;
-  $("edZoomOut").textContent = clip.zoom.toFixed(2).replace(".", ",") + "×";
+  $("edZoomOut").textContent = fmtNum(clip.zoom, 2) + "×";
+  document.querySelectorAll("#edKb button").forEach((b) => b.classList.toggle("on", b.dataset.v === clip.kb));
+  // Luz
+  $("edBright").value = Math.round(clip.adj.bright / 0.25 * 100);
+  $("edWarm").value = Math.round(clip.adj.warm * 100);
+  $("edSat").value = Math.round(clip.adj.sat * 100);
+  const signed = (x) => (x > 0 ? "+" : "") + x;
+  $("edBrightOut").textContent = signed(Number($("edBright").value));
+  $("edWarmOut").textContent = signed(Number($("edWarm").value));
+  $("edSatOut").textContent = $("edSat").value + " %";
+  // Tapar
+  document.querySelectorAll("#edKey button").forEach((b) => b.classList.toggle("on", b.dataset.v === ed.key));
+  $("zoneDel").disabled = ed.zone < 0;
+  $("zoneCount").textContent = clip.zones.length
+    ? `${clip.zones.length} recuadro${clip.zones.length === 1 ? "" : "s"}${clip.zones.some((z) => z.x2 != null) ? " · con movimiento" : ""}`
+    : "Sin recuadros";
+
   $("edLeft").disabled = i <= 0;
   $("edRight").disabled = i >= n - 1;
+}
+
+function edProgress() {
+  const c = ed.clip;
+  return ed.v ? clamp((ed.v.currentTime - c.start) / footage(c), 0, 1) : 0;
+}
+
+function edRect() {
+  const v = ed.v, cv = $("edCanvas");
+  if (!v || !v.videoWidth) return null;
+  return coverRect(v.videoWidth, v.videoHeight, cv.width, cv.height, ed.clip, { p: edProgress() });
 }
 
 function edDraw() {
   const cv = $("edCanvas");
   const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
   ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, cv.width, cv.height);
-  if (ed.v && ed.clip) drawCover(ctx, ed.v, cv.width, cv.height, ed.clip);
+  ctx.fillRect(0, 0, W, H);
+  if (!ed.v || !ed.clip) return;
+  const p = edProgress();
+  drawCover(ctx, ed.v, W, H, ed.clip, { p });
+  drawVignette(ctx, W, H, LOOKS[state.look].vig);
+
+  if (ed.tab === "encuadre" || ed.tab === "trozo") {
+    // Tercios y, en historias, las franjas que tapa la interfaz de Instagram
+    ctx.strokeStyle = "rgba(255,255,255,.35)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const k of [1, 2]) {
+      ctx.moveTo(W * k / 3, 0); ctx.lineTo(W * k / 3, H);
+      ctx.moveTo(0, H * k / 3); ctx.lineTo(W, H * k / 3);
+    }
+    ctx.stroke();
+    if (state.format === "story") {
+      ctx.fillStyle = "rgba(0,0,0,.4)";
+      ctx.fillRect(0, 0, W, H * 0.11);
+      ctx.fillRect(0, H * 0.84, W, H * 0.16);
+      ctx.fillStyle = "rgba(255,255,255,.7)";
+      ctx.font = `${Math.round(W / 32)}px -apple-system, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("zona que tapa Instagram", W / 2, H * 0.07);
+      ctx.fillText("zona que tapa Instagram", W / 2, H * 0.93);
+    }
+  }
+  // Los marcos solo sirven para colocar: al darle a Probar se ve tal cual saldrá
+  if (ed.tab === "tapar" && !ed.playing) {
+    const r = edRect();
+    if (!r) return;
+    ed.clip.zones.forEach((z, i) => {
+      const q = zoneCanvasRect(z, r, p);
+      const sel = i === ed.zone;
+      ctx.lineWidth = sel ? 3 : 2;
+      ctx.strokeStyle = sel ? "#FF5C39" : "rgba(255,255,255,.85)";
+      ctx.setLineDash(sel ? [] : [6, 4]);
+      ctx.strokeRect(q.x, q.y, q.w, q.h);
+      ctx.setLineDash([]);
+      if (sel) {
+        ctx.fillStyle = "#FF5C39";
+        ctx.fillRect(q.x + q.w - 9, q.y + q.h - 9, 18, 18);
+      }
+    });
+  }
 }
 
 // Seeks encadenados: si el usuario arrastra rápido solo se aplica el último valor
@@ -625,7 +920,7 @@ function edStop() {
 }
 
 function edTogglePlay() {
-  if (ed.playing) { edStop(); seekToStart(); return; }
+  if (ed.playing) { edStop(); edSeek(edKeyTime()); return; }
   const clip = ed.clip, v = ed.v;
   ed.playing = true;
   $("edPlay").textContent = "■ Parar";
@@ -644,7 +939,11 @@ function edTogglePlay() {
   ed.raf = requestAnimationFrame(loop);
 }
 
-function seekToStart() { if (ed.clip) edSeek(ed.clip.start); }
+// En la pestaña Tapar, "Final" muestra el último frame del trozo para colocar ahí el recuadro
+function edKeyTime() {
+  const c = ed.clip;
+  return ed.tab === "tapar" && ed.key === "end" ? Math.max(c.start, c.start + footage(c) - 0.05) : c.start;
+}
 
 function closeEditor() {
   edStop();
@@ -673,8 +972,20 @@ function moveClip(delta) {
   updateEditorUI();
 }
 
+function edChanged() {
+  updateEditorUI();
+  if (!ed.playing) edDraw();
+}
+
 function setupEditor() {
   $("edDone").addEventListener("click", closeEditor);
+  document.querySelectorAll("#edTabs button").forEach((b) => b.addEventListener("click", () => {
+    ed.tab = b.dataset.tab;
+    if (!ed.playing) edSeek(edKeyTime());
+    edChanged();
+  }));
+
+  // Trozo
   $("edStart").addEventListener("input", (e) => {
     edStop();
     ed.clip.start = clamp(Number(e.target.value), 0, maxStart(ed.clip));
@@ -687,17 +998,62 @@ function setupEditor() {
     updateEditorUI();
     edSeek(ed.clip.start);
   }));
+  document.querySelectorAll("#edSpeed button").forEach((b) => b.addEventListener("click", () => {
+    edStop();
+    ed.clip.speed = Number(b.dataset.v);
+    ed.clip.start = Math.min(ed.clip.start, maxStart(ed.clip));
+    updateEditorUI();
+    edSeek(ed.clip.start);
+  }));
   $("edPlay").addEventListener("click", edTogglePlay);
-  $("edZoom").addEventListener("input", (e) => {
-    ed.clip.zoom = Number(e.target.value);
-    updateEditorUI();
-    if (!ed.playing) edDraw();
+
+  // Encuadre
+  $("edZoom").addEventListener("input", (e) => { ed.clip.zoom = Number(e.target.value); edChanged(); });
+  $("edCenter").addEventListener("click", () => { Object.assign(ed.clip, { fx: 0, fy: 0, zoom: 1 }); edChanged(); });
+  document.querySelectorAll("#edKb button").forEach((b) => b.addEventListener("click", () => { ed.clip.kb = b.dataset.v; edChanged(); }));
+  $("kbAll").addEventListener("click", () => {
+    const kb = ed.clip.kb;
+    // "Acercar" o "Alejar" en todos se alterna para que no canse: acercar, alejar, acercar…
+    state.clips.forEach((c, i) => { c.kb = kb === "none" ? "none" : (i % 2 === 0 ? kb : (kb === "in" ? "out" : "in")); });
+    edChanged();
+    showToast(kb === "none" ? "Zoom lento quitado de todos" : "Zoom lento en todos, alternando acercar y alejar", "Vale", () => {}, 3000);
   });
-  $("edCenter").addEventListener("click", () => {
-    Object.assign(ed.clip, { fx: 0, fy: 0, zoom: 1 });
-    updateEditorUI();
-    if (!ed.playing) edDraw();
+
+  // Luz
+  $("edBright").addEventListener("input", (e) => { ed.clip.adj.bright = Number(e.target.value) / 100 * 0.25; edChanged(); });
+  $("edWarm").addEventListener("input", (e) => { ed.clip.adj.warm = Number(e.target.value) / 100; edChanged(); });
+  $("edSat").addEventListener("input", (e) => { ed.clip.adj.sat = Number(e.target.value) / 100; edChanged(); });
+  $("lightReset").addEventListener("click", () => { ed.clip.adj = { bright: 0, warm: 0, sat: 1 }; edChanged(); });
+  $("lightAll").addEventListener("click", () => {
+    for (const c of state.clips) c.adj = { ...ed.clip.adj };
+    showToast("Luz copiada a todos los clips", "Vale", () => {}, 3000);
   });
+
+  // Tapar
+  document.querySelectorAll("#edKey button").forEach((b) => b.addEventListener("click", () => {
+    edStop();
+    ed.key = b.dataset.v;
+    updateEditorUI();
+    edSeek(edKeyTime());
+  }));
+  $("zoneAdd").addEventListener("click", () => {
+    const r = edRect();
+    if (!r) return;
+    const cv = $("edCanvas");
+    // Recuadro nuevo en el centro de lo que se ve, del tamaño aproximado de una matrícula
+    const w = cv.width * 0.34 / r.dw, h = cv.width * 0.09 / r.dh;
+    const cx = (cv.width / 2 - r.x) / r.dw, cy = (cv.height / 2 - r.y) / r.dh;
+    ed.clip.zones.push({ x: cx - w / 2, y: cy - h / 2, w, h, x2: null, y2: null });
+    ed.zone = ed.clip.zones.length - 1;
+    edChanged();
+  });
+  $("zoneDel").addEventListener("click", () => {
+    if (ed.zone < 0) return;
+    ed.clip.zones.splice(ed.zone, 1);
+    ed.zone = ed.clip.zones.length - 1;
+    edChanged();
+  });
+
   $("edLeft").addEventListener("click", () => moveClip(-1));
   $("edRight").addEventListener("click", () => moveClip(1));
   $("edDelete").addEventListener("click", () => {
@@ -717,32 +1073,64 @@ function setupEditor() {
     edSeek(copy.start);
     showToast("Duplicado: elige otro trozo para este", "Vale", () => {}, 3000);
   });
-  document.querySelectorAll("#edSpeed button").forEach((b) => b.addEventListener("click", () => {
-    edStop();
-    ed.clip.speed = Number(b.dataset.v);
-    ed.clip.start = Math.min(ed.clip.start, maxStart(ed.clip));
-    updateEditorUI();
-    edSeek(ed.clip.start);
-  }));
 
-  // Arrastrar sobre la imagen para mover el encuadre
+  // Arrastrar sobre la imagen: mueve el encuadre, o los recuadros en la pestaña Tapar
   const cv = $("edCanvas");
-  let last = null;
-  cv.addEventListener("pointerdown", (e) => { last = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+  let last = null, mode = null;
+  const toCanvas = (e) => {
+    const b = cv.getBoundingClientRect();
+    const k = cv.width / b.width;
+    return { x: (e.clientX - b.left) * k, y: (e.clientY - b.top) * k, k };
+  };
+  cv.addEventListener("pointerdown", (e) => {
+    last = toCanvas(e);
+    mode = "frame";
+    cv.setPointerCapture(e.pointerId);
+    if (ed.tab !== "tapar") return;
+    mode = null;
+    const r = edRect();
+    if (!r) return;
+    const p = edProgress();
+    const grab = 22 * last.k;
+    for (let i = ed.clip.zones.length - 1; i >= 0; i--) {
+      const q = zoneCanvasRect(ed.clip.zones[i], r, p);
+      const nearCorner = Math.abs(last.x - (q.x + q.w)) < grab && Math.abs(last.y - (q.y + q.h)) < grab;
+      const inside = last.x >= q.x && last.x <= q.x + q.w && last.y >= q.y && last.y <= q.y + q.h;
+      if (nearCorner || inside) { ed.zone = i; mode = nearCorner ? "resize" : "move"; break; }
+    }
+    edChanged();
+  });
   cv.addEventListener("pointermove", (e) => {
-    if (!last || !ed.clip || !ed.v || !ed.v.videoWidth) return;
-    const r = cv.getBoundingClientRect();
-    const k = cv.width / r.width;
-    const dx = (e.clientX - last.x) * k, dy = (e.clientY - last.y) * k;
-    last = { x: e.clientX, y: e.clientY };
-    const v = ed.v, clip = ed.clip, W = cv.width, H = cv.height;
-    const s = Math.max(W / v.videoWidth, H / v.videoHeight) * clip.zoom;
-    const roomX = (v.videoWidth * s - W) / 2, roomY = (v.videoHeight * s - H) / 2;
-    if (roomX > 0.5) clip.fx = clamp(clip.fx + dx / roomX, -1, 1);
-    if (roomY > 0.5) clip.fy = clamp(clip.fy + dy / roomY, -1, 1);
+    if (!last || !mode || !ed.clip || !ed.v || !ed.v.videoWidth) return;
+    const now = toCanvas(e);
+    const dx = now.x - last.x, dy = now.y - last.y;
+    last = now;
+    const clip = ed.clip, W = cv.width, H = cv.height;
+    const r = edRect();
+    if (mode === "frame") {
+      const roomX = (r.dw - W) / 2, roomY = (r.dh - H) / 2;
+      if (roomX > 0.5) clip.fx = clamp(clip.fx + dx / roomX, -1, 1);
+      if (roomY > 0.5) clip.fy = clamp(clip.fy + dy / roomY, -1, 1);
+    } else {
+      const z = clip.zones[ed.zone];
+      if (!z) return;
+      const nx = dx / r.dw, ny = dy / r.dh;
+      if (mode === "resize") {
+        z.w = clamp(z.w + nx, 0.01, 1);
+        z.h = clamp(z.h + ny, 0.01, 1);
+      } else if (ed.key === "end") {
+        if (z.x2 == null) { z.x2 = z.x; z.y2 = z.y; }
+        z.x2 += nx; z.y2 += ny;
+      } else {
+        z.x += nx; z.y += ny;
+      }
+    }
     if (!ed.playing) edDraw();
   });
-  const end = () => { last = null; };
+  const end = () => {
+    if (mode && mode !== "frame") updateEditorUI();
+    last = null; mode = null;
+  };
   cv.addEventListener("pointerup", end);
   cv.addEventListener("pointercancel", end);
 }
@@ -760,6 +1148,8 @@ class Engine {
     this.tl = tl;
     this.total = tl.reduce((s, e) => s + e.len, 0);
     this.trans = state.trans;
+    this.vig = LOOKS[state.look].vig || 0;
+    this.fades = state.fades === "on";
     this.opts = opts;
     this.pool = [0, 1, 2].map(() => makeVideo());
     this.stopped = false;
@@ -883,31 +1273,43 @@ class Engine {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
     const cur = this.el(i), c = this.tl[i].clip;
-    if (!inTr) { drawCover(ctx, cur, W, H, c); return; }
-    const pc = this.tl[i - 1].clip;
-    const p = clamp(local / tr, 0, 1);
-    const k = ease(p);
-    switch (this.trans) {
-      case "fade":
-        drawCover(ctx, prevEl, W, H, pc);
-        drawCover(ctx, cur, W, H, c, { alpha: k });
-        break;
-      case "black":
-        if (p < 0.5) drawCover(ctx, prevEl, W, H, pc);
-        else drawCover(ctx, cur, W, H, c);
-        ctx.fillStyle = `rgba(0,0,0,${p < 0.5 ? p * 2 : (1 - p) * 2})`;
+    const pc = i > 0 ? this.tl[i - 1].clip : null;
+    const p = local / this.tl[i].len;   // progreso del clip (zoom lento y recuadros)
+    if (!inTr) {
+      drawCover(ctx, cur, W, H, c, { p });
+    } else {
+      const q = clamp(local / tr, 0, 1);
+      const k = ease(q);
+      switch (this.trans) {
+        case "fade":
+          drawCover(ctx, prevEl, W, H, pc, { p: 1 });
+          drawCover(ctx, cur, W, H, c, { p, alpha: k });
+          break;
+        case "black":
+          if (q < 0.5) drawCover(ctx, prevEl, W, H, pc, { p: 1 });
+          else drawCover(ctx, cur, W, H, c, { p });
+          ctx.fillStyle = `rgba(0,0,0,${q < 0.5 ? q * 2 : (1 - q) * 2})`;
+          ctx.fillRect(0, 0, W, H);
+          break;
+        case "slide":
+          drawCover(ctx, prevEl, W, H, pc, { p: 1, dx: -W * k });
+          drawCover(ctx, cur, W, H, c, { p, dx: W * (1 - k) });
+          break;
+        case "zoom":
+          drawCover(ctx, prevEl, W, H, pc, { p: 1, scale: 1 + 0.15 * k });
+          drawCover(ctx, cur, W, H, c, { p, alpha: k, scale: 1.2 - 0.2 * k });
+          break;
+        default:
+          drawCover(ctx, cur, W, H, c, { p });
+      }
+    }
+    drawVignette(ctx, W, H, this.vig);
+    if (this.fades) {
+      const t = this.vt, a = t < FADE_LEN ? 1 - t / FADE_LEN : t > this.total - FADE_LEN ? (t - (this.total - FADE_LEN)) / FADE_LEN : 0;
+      if (a > 0) {
+        ctx.fillStyle = `rgba(0,0,0,${clamp(a, 0, 1)})`;
         ctx.fillRect(0, 0, W, H);
-        break;
-      case "slide":
-        drawCover(ctx, prevEl, W, H, pc, { dx: -W * k });
-        drawCover(ctx, cur, W, H, c, { dx: W * (1 - k) });
-        break;
-      case "zoom":
-        drawCover(ctx, prevEl, W, H, pc, { scale: 1 + 0.15 * k });
-        drawCover(ctx, cur, W, H, c, { alpha: k, scale: 1.2 - 0.2 * k });
-        break;
-      default:
-        drawCover(ctx, cur, W, H, c);
+      }
     }
   }
 
@@ -935,7 +1337,10 @@ class Engine {
     cancelAnimationFrame(this.raf);
     let blob = null;
     if (this.rec) {
-      await wait(200);  // deja que el último frame entre en la grabación
+      // Último frame (en negro si hay fundido) y un respiro para que entre en la grabación
+      this.vt = this.total;
+      this.compose(this.tl.length - 1, this.tl[this.tl.length - 1].len, 0, false, null);
+      await wait(200);
       blob = await this.stopRecorder();
     }
     this.cleanup();
@@ -1027,11 +1432,14 @@ function releaseWake() {
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 
+function slug(s) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+}
+
 function showResult(blob) {
   const ext = blob.type.includes("mp4") ? "mp4" : "webm";
   const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const name = `cuadra-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`;
+  const name = `${slug(state.name) || "cuadra"}-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}.${ext}`;
   if (resultUrl) URL.revokeObjectURL(resultUrl);
   resultUrl = URL.createObjectURL(blob);
   const v = $("plResult");
@@ -1042,7 +1450,7 @@ function showResult(blob) {
   v.width = f.w; v.height = f.h;
   fitVideo(v);
   $("plTitle").textContent = "¡Listo!";
-  setStatus(`${(blob.size / 1048576).toFixed(1).replace(".", ",")} MB · ${ext.toUpperCase()} ${f.w}×${f.h}`);
+  setStatus(`${fmtNum(blob.size / 1048576)} MB · ${ext.toUpperCase()} ${f.w}×${f.h}`);
   $("plActions").hidden = false;
   const a = $("plDownload");
   a.href = resultUrl;
@@ -1090,13 +1498,20 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// ---------------------------------------------------------------- guardar proyecto
+// ---------------------------------------------------------------- guardar proyectos
 
-// Los vídeos y el estado de cada clip se guardan en IndexedDB (dentro del propio móvil),
-// para que si iOS cierra la app al irte a Fotos o a Instagram, al volver siga todo igual.
+// Todo se guarda en IndexedDB, dentro del propio móvil, para que si iOS cierra la app
+// al irte a Fotos o a Instagram, al volver siga todo igual.
+//   files:  fileKey → vídeo original (compartido entre duplicados)
+//   meta:   "projects" → índice de proyectos, "project:<id>" → ajustes y clips,
+//           "current" → proyecto abierto, "counter" → siguiente id libre
+const CLIP_KEYS = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "speed", "stats", "date", "adj", "kb", "zones"];
+const SETTING_KEYS = Object.keys(DEFAULTS);
+
 const store = {
   _db: null,
   _timer: 0,
+  _chain: Promise.resolve(),
   failed: false,
   restored: false,
   db() {
@@ -1119,6 +1534,10 @@ const store = {
       tx.onerror = tx.onabort = () => reject(tx.error);
     });
   },
+  get(key) { return this.req("meta", "readonly", (s) => s.get(key)); },
+  put(key, val) { return this.req("meta", "readwrite", (s) => s.put(val, key)); },
+  async index() { return (await this.get("projects")) || []; },
+
   async putFile(key, file) {
     try { await this.req("files", "readwrite", (s) => s.put(file, key)); }
     catch (e) {
@@ -1131,61 +1550,299 @@ const store = {
     clearTimeout(this._timer);
     this._timer = setTimeout(() => this.saveNow(), 400);
   },
-  async saveNow() {
+  // Los guardados van en fila para que dos no se pisen
+  saveNow() {
     clearTimeout(this._timer);
-    if (!this.restored) return;   // no pisar lo guardado antes de haberlo cargado
-    const keep = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "speed", "stats"];
-    const clips = state.clips.filter((c) => !c.loading && !c.error)
-      .map((c) => Object.fromEntries(keep.map((k) => [k, c[k]])));
-    try {
-      await this.req("meta", "readwrite", (s) => s.put({ clips, nextId }, "project"));
-      // Borra los vídeos que ya no usa ningún clip
-      const used = new Set(state.clips.map((c) => c.fileKey));
-      if (undo) used.add(undo.clip.fileKey);
-      const keys = await this.req("files", "readonly", (s) => s.getAllKeys());
-      const unused = keys.filter((k) => !used.has(k));
-      if (unused.length) await this.req("files", "readwrite", (s) => { unused.forEach((k) => s.delete(k)); });
-    } catch (e) { /* sin IndexedDB: la app funciona igual, solo que sin guardar */ }
+    this._chain = this._chain.then(() => this._save()).catch(() => {});
+    return this._chain;
   },
+  async _save() {
+    if (!this.restored || !state.projectId) return;   // no pisar lo guardado antes de haberlo cargado
+    const clips = state.clips.filter((c) => !c.loading && !c.error)
+      .map((c) => Object.fromEntries(CLIP_KEYS.map((k) => [k, c[k]])));
+    const settings = Object.fromEntries(SETTING_KEYS.map((k) => [k, state[k]]));
+    await this.put("project:" + state.projectId, { id: state.projectId, name: state.name, saved: state.saved, settings, clips });
+    const tl = buildTimeline();
+    const list = await this.index();
+    const entry = list.find((p) => p.id === state.projectId);
+    const info = {
+      id: state.projectId, name: state.name, saved: state.saved, updated: Date.now(),
+      count: clips.length, total: tl.reduce((s, e) => s + e.len, 0), format: state.format,
+      thumb: (clips[0] && clips[0].thumb) || "",
+      fileKeys: [...new Set(clips.map((c) => c.fileKey))],
+    };
+    if (entry) Object.assign(entry, info); else list.push({ created: Date.now(), ...info });
+    await this.put("projects", list);
+    await this.put("current", state.projectId);
+    await this.put("counter", nextId);
+    // Borra los vídeos que ya no usa ningún clip de ningún proyecto
+    const used = new Set(list.flatMap((p) => p.fileKeys || []));
+    state.clips.forEach((c) => used.add(c.fileKey));
+    if (undo) used.add(undo.clip.fileKey);
+    const keys = await this.req("files", "readonly", (s) => s.getAllKeys());
+    const unused = keys.filter((k) => !used.has(k));
+    if (unused.length) await this.req("files", "readwrite", (s) => { unused.forEach((k) => s.delete(k)); });
+  },
+
+  async load(id) {
+    const rec = await this.get("project:" + id);
+    if (!rec) return false;
+    const files = new Map();
+    const clips = [];
+    for (const c of rec.clips || []) {
+      if (!files.has(c.fileKey)) {
+        const file = await this.req("files", "readonly", (s) => s.get(c.fileKey));
+        files.set(c.fileKey, file ? { file, url: URL.createObjectURL(file) } : null);
+      }
+      const f = files.get(c.fileKey);
+      if (f) clips.push(normalizeClip({ ...c, file: f.file, url: f.url }));
+    }
+    Object.assign(state, DEFAULTS, rec.settings || {}, { projectId: id, name: rec.name, saved: !!rec.saved, clips });
+    nextId = Math.max(nextId, ...clips.map((c) => Math.max(c.id, c.fileKey) + 1));
+    return true;
+  },
+
+  async create(name, settings, saved = false) {
+    const list = await this.index();
+    const id = "p" + Date.now().toString(36);
+    const rec = { id, name: name || defaultDraftName(), saved, settings: settings || { ...DEFAULTS }, clips: [] };
+    await this.put("project:" + id, rec);
+    list.push({ id, name: rec.name, saved, created: Date.now(), updated: Date.now(), count: 0, total: 0, thumb: "", fileKeys: [], format: rec.settings.format });
+    await this.put("projects", list);
+    return id;
+  },
+
+  async remove(id) {
+    const list = (await this.index()).filter((p) => p.id !== id);
+    await this.put("projects", list);
+    await this.req("meta", "readwrite", (s) => s.delete("project:" + id));
+    return list;
+  },
+
+  async rename(id, name) {
+    const list = await this.index();
+    const p = list.find((x) => x.id === id);
+    if (p) p.name = name;
+    await this.put("projects", list);
+    const rec = await this.get("project:" + id);
+    if (rec) { rec.name = name; await this.put("project:" + id, rec); }
+  },
+
   async restore() {
     try {
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-      const meta = await this.req("meta", "readonly", (s) => s.get("project"));
-      if (meta && meta.clips && meta.clips.length && !state.clips.length) {
-        const files = new Map();
-        const clips = [];
-        for (const c of meta.clips) {
-          if (!files.has(c.fileKey)) {
-            const file = await this.req("files", "readonly", (s) => s.get(c.fileKey));
-            files.set(c.fileKey, file ? { file, url: URL.createObjectURL(file) } : null);
-          }
-          const f = files.get(c.fileKey);
-          if (f) clips.push({ speed: 1, ...c, file: f.file, url: f.url, loading: false, error: false });
-        }
-        nextId = Math.max(nextId, meta.nextId || 1, ...clips.map((c) => c.id + 1));
-        state.clips = clips;
+      nextId = Math.max(nextId, (await this.get("counter")) || 1);
+      // Versión anterior (un solo proyecto): se convierte en el primero de la lista
+      const old = await this.get("project");
+      if (old && !(await this.index()).length) {
+        const id = await this.create("Mi primer vídeo", null, true);
+        const rec = await this.get("project:" + id);
+        rec.clips = old.clips || [];
+        await this.put("project:" + id, rec);
+        nextId = Math.max(nextId, old.nextId || 1);
+        await this.put("current", id);
+        await this.req("meta", "readwrite", (s) => s.delete("project"));
       }
-    } catch (e) { /* nada guardado o sin IndexedDB */ }
+      let id = await this.get("current");
+      if (!id || !(await this.load(id))) {
+        const list = await this.index();
+        const last = list.filter((p) => !p.saved).pop();
+        id = last ? last.id : await this.create();
+        await this.load(id);
+      }
+    } catch (e) {
+      // Sin IndexedDB (modo privado raro): la app funciona igual, solo que sin guardar
+      state.projectId = state.projectId || "local";
+      state.name = state.name || "Proyecto";
+    }
     this.restored = true;
     render();
   },
 };
 
+// ---------------------------------------------------------------- borradores
+
+// Lo que estás editando se guarda solo (por si iOS cierra la app). "Guardar borrador" le
+// pone nombre y lo deja en la lista para retomarlo otro día; lo no guardado se descarta
+// cuando empiezas otro vídeo (preguntando antes).
+function defaultDraftName() {
+  const now = Date.now();
+  return `Borrador · ${fmtDay(now)} ${fmtClock(now)}`;
+}
+
+async function saveDraft() {
+  const name = prompt("Nombre del borrador", state.saved ? state.name : defaultDraftName());
+  if (name == null) return false;
+  state.name = name.trim() || defaultDraftName();
+  state.saved = true;
+  await store.saveNow();
+  render();
+  showToast("Borrador guardado", "Vale", () => {}, 2500);
+  return true;
+}
+
+// Pequeño diálogo con varias opciones (confirm() solo da dos y aquí hacen falta tres)
+function ask(text, options) {
+  return new Promise((resolve) => {
+    $("askText").textContent = text;
+    const box = $("askBtns");
+    box.innerHTML = "";
+    for (const [value, label, cls] of options) {
+      const b = document.createElement("button");
+      b.className = "btn " + (cls || "");
+      b.textContent = label;
+      b.onclick = () => { $("ask").hidden = true; resolve(value); };
+      box.appendChild(b);
+    }
+    $("ask").hidden = false;
+  });
+}
+
+// Antes de dejar el vídeo actual: si tiene clips y no es un borrador guardado, se pregunta
+async function leaveCurrent() {
+  if (state.clips.some((c) => c.loading)) {
+    showToast("Espera a que terminen de cargar los clips", "Vale", () => {}, 3000);
+    return false;
+  }
+  finishUndo();
+  if (!state.saved && state.clips.length) {
+    const r = await ask("El vídeo actual no está guardado como borrador.", [
+      ["save", "Guardar borrador", "primary"], ["drop", "Descartarlo", "danger-btn"], ["cancel", "Cancelar"],
+    ]);
+    if (r === "cancel") return false;
+    if (r === "save" && !(await saveDraft())) return false;
+  }
+  await store.saveNow();
+  // Un vídeo sin guardar se tira (con sus clips) al salir de él
+  if (!state.saved && state.projectId) await store.remove(state.projectId);
+  releaseAllUrls();
+  state.clips = [];
+  state.projectId = null;
+  await store.saveNow();   // limpia los vídeos que ya no usa nadie
+  return true;
+}
+
+async function newVideo() {
+  // El vídeo nuevo hereda los ajustes del actual (formato, ritmo, look…)
+  const settings = Object.fromEntries(SETTING_KEYS.map((k) => [k, state[k]]));
+  if (!(await leaveCurrent())) return;
+  await store.load(await store.create(null, settings));
+  closeDrafts();
+  window.scrollTo(0, 0);
+  render();
+}
+
+async function openDraft(id) {
+  if (!(await leaveCurrent())) return;
+  if (!(await store.load(id))) await store.load(await store.create());
+  closeDrafts();
+  window.scrollTo(0, 0);
+  render();
+}
+
+async function openDrafts() {
+  await store.saveNow();
+  const list = (await store.index()).filter((p) => p.saved).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  const box = $("projList");
+  box.innerHTML = "";
+  if (!list.length) {
+    const p = document.createElement("p");
+    p.className = "proj-empty";
+    p.textContent = "Aún no tienes borradores. Dale a «Guardar» en un vídeo para dejarlo aquí.";
+    box.appendChild(p);
+  }
+  for (const p of list) {
+    const row = document.createElement("div");
+    row.className = "proj" + (p.id === state.projectId ? " current" : "");
+    row.dataset.id = p.id;
+    const th = document.createElement("div");
+    th.className = "proj-thumb" + (p.format === "post" ? " post" : "");
+    if (p.thumb) th.style.backgroundImage = `url("${p.thumb}")`;
+    const info = document.createElement("div");
+    info.className = "proj-info";
+    const b = document.createElement("b");
+    b.textContent = p.name;
+    const sm = document.createElement("span");
+    sm.textContent = (p.id === state.projectId ? "Abierto · " : "") +
+      `${p.count || 0} clip${p.count === 1 ? "" : "s"} · ${fmtTime(p.total || 0)} · ${fmtDay(p.updated || p.created || Date.now())}`;
+    info.append(b, sm);
+    const ren = document.createElement("button");
+    ren.className = "icon-btn";
+    ren.dataset.act = "ren";
+    ren.setAttribute("aria-label", "Renombrar");
+    ren.textContent = "✎";
+    const del = document.createElement("button");
+    del.className = "icon-btn danger";
+    del.dataset.act = "del";
+    del.setAttribute("aria-label", "Borrar");
+    del.textContent = "✕";
+    row.append(th, info, ren, del);
+    box.appendChild(row);
+  }
+  $("projects").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeDrafts() {
+  $("projects").hidden = true;
+  document.body.style.overflow = "";
+}
+
+function setupDrafts() {
+  $("btnDrafts").addEventListener("click", openDrafts);
+  $("btnSaveDraft").addEventListener("click", saveDraft);
+  $("projClose").addEventListener("click", closeDrafts);
+  $("projNew").addEventListener("click", newVideo);
+  $("projList").addEventListener("click", async (e) => {
+    const row = e.target.closest(".proj");
+    if (!row) return;
+    const id = row.dataset.id;
+    const act = e.target.closest("[data-act]");
+    if (act && act.dataset.act === "ren") {
+      const cur = row.querySelector("b").textContent;
+      const name = (prompt("Nombre del borrador", cur) || "").trim();
+      if (!name || name === cur) return;
+      if (id === state.projectId) { state.name = name; await store.saveNow(); }
+      await store.rename(id, name);
+      render();
+      openDrafts();
+    } else if (act && act.dataset.act === "del") {
+      if (!confirm(`¿Borrar "${row.querySelector("b").textContent}" y sus clips? No se puede deshacer.`)) return;
+      if (id === state.projectId) {
+        // Borrar el que tienes abierto: te quedas con un vídeo vacío
+        state.saved = false;
+        state.clips.length = 0;
+        await leaveCurrent();
+        await store.load(await store.create());
+        render();
+      } else {
+        await store.remove(id);
+      }
+      await store.saveNow();
+      openDrafts();
+    } else if (id !== state.projectId) {
+      await openDraft(id);
+    } else {
+      closeDrafts();
+    }
+  });
+}
+
 // ---------------------------------------------------------------- arranque
 
 function init() {
-  loadPrefs();
   const onPick = (e) => { addFiles(e.target.files); e.target.value = ""; };
   $("fileInput").addEventListener("change", onPick);
   $("fileInput2").addEventListener("change", onPick);
-  $("btnClear").addEventListener("click", () => {
-    if (!confirm("¿Quitar todos los clips?")) return;
-    finishUndo();
-    const urls = new Set(state.clips.map((c) => c.url));
-    state.clips = [];
-    urls.forEach((u) => URL.revokeObjectURL(u));
-    render();
-  });
+  $("btnSort").addEventListener("click", sortByDate);
+  $("btnTap").addEventListener("pointerdown", (e) => { e.preventDefault(); tapTempo(); });
+  $("bpmMinus").addEventListener("click", () => setSetting("bpm", clamp(state.bpm - 1, 50, 220)));
+  $("bpmPlus").addEventListener("click", () => setSetting("bpm", clamp(state.bpm + 1, 50, 220)));
+  // Recordar si el panel de ajustes estaba abierto (comodidad, no importa si falla)
+  const box = $("settingsBox");
+  try { if (localStorage.getItem("cuadra-settings-open") === "0") box.open = false; } catch (e) { /* nada */ }
+  box.addEventListener("toggle", () => { try { localStorage.setItem("cuadra-settings-open", box.open ? "1" : "0"); } catch (e) { /* nada */ } });
+
   $("btnPreview").addEventListener("click", () => startPlayer(false));
   $("btnExport").addEventListener("click", () => startPlayer(true));
   $("plClose").addEventListener("click", closePlayer);
@@ -1198,6 +1855,7 @@ function init() {
   });
   setupGrid();
   setupEditor();
+  setupDrafts();
   render();
   store.restore();
   // iOS puede matar la app en cuanto se va a segundo plano: se guarda ya

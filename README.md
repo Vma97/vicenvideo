@@ -2,12 +2,18 @@
 
 Mini editor propio: junta clips cortos (≈4 s) en un vídeo vertical de 1080 para Instagram.
 
-- **Historia** 1080×1920 (9:16) o **Publicación** 1080×1350 (4:5)
-- Duración por clip 4 u 8 s; máximo 1 min en historia y 3 min en publicación (lo que sobra se corta), transición (corte, fundido, negro, deslizar, zoom)
-- Por clip: frame exacto de inicio, encuadre arrastrando y zoom
-- Igualar tono (No / Suave / Fuerte): mide luz y color de cada clip y los acerca a un tono común (WebGL)
-- Velocidad por clip (0,5× / 1× / 2×), duplicar clip (otro trozo del mismo vídeo) y deshacer al quitar
-- El proyecto se guarda en el móvil (IndexedDB): si iOS cierra la app, al volver sigue todo igual
+- **Historia** 1080×1920 (9:16, hasta 1 min) o **Publicación** 1080×1350 (4:5, hasta 3 min); lo que sobra se corta
+- Duración por clip: 4 s, 8 s o **Ritmo** (BPM con tap tempo × 2/4/8 golpes) para que los cortes caigan a ritmo
+- Transiciones (corte, fundido, negro, deslizar, zoom) y fundido de entrada y salida desde negro
+- **Igualar tono** (No / Suave / Fuerte) y **Look** para todo el vídeo (Natural, Vivo, Cálido, Cine, Frío, B/N)
+- Orden automático por **hora de grabación** (se lee de la caja `mvhd` del .mov/.mp4) y hora en cada miniatura
+- Editor por clip en pestañas:
+  - **Trozo**: frame exacto de inicio y velocidad (0,5× / 1× / 2×)
+  - **Encuadre**: arrastrar, zoom, **zoom lento** (acercar/alejar, «aplicar a todos» alterna) y guías de IG
+  - **Luz**: brillo, calidez y saturación, con «aplicar a todos»
+  - **Tapar**: recuadros que **pixelan** (matrículas), con posición de inicio y final si se mueven
+- Duplicar clip, deshacer al quitar, reordenar arrastrando
+- **Borradores**: lo que editas se guarda solo en el móvil (IndexedDB); «Guardar» le pone nombre y lo deja en la lista
 - Exporta MP4 y se guarda o comparte desde el menú del iPhone
 
 Es una PWA sin dependencias ni build: HTML + CSS + JS. Todo se procesa en el móvil
