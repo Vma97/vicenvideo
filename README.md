@@ -1,4 +1,4 @@
-# CUADRA
+# VicenVideo
 
 Mini editor propio: junta clips cortos (≈4 s) en un vídeo vertical de 1080 para Instagram.
 

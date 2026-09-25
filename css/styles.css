@@ -35,7 +35,7 @@ button { font: inherit; color: inherit; }
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
 .brand {
-  font-weight: 800; letter-spacing: .16em; font-size: 17px;
+  font-weight: 800; letter-spacing: .08em; font-size: 16px; white-space: nowrap;
   background: linear-gradient(90deg, var(--accent), var(--accent2));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }

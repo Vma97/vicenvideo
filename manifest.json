@@ -1,6 +1,6 @@
 {
-  "name": "CUADRA — Clips a vídeo para Instagram",
-  "short_name": "CUADRA",
+  "name": "VicenVideo — Clips a vídeo para Instagram",
+  "short_name": "VicenVideo",
   "description": "Junta clips cortos en un vídeo vertical de 1080 para historias y publicaciones",
   "start_url": "./index.html",
   "scope": "./",

@@ -1,6 +1,6 @@
 "use strict";
 
-// CUADRA — junta clips cortos en un vídeo vertical de 1080 para Instagram.
+// VicenVideo (antes CUADRA) — junta clips cortos en un vídeo vertical de 1080 para Instagram.
 // Todo pasa en el móvil: los clips se dibujan en un <canvas> en tiempo real
 // y MediaRecorder graba ese canvas a MP4. Nada sale del teléfono.
 
@@ -2064,7 +2064,7 @@ function slug(s) {
 function showResult(blob) {
   const ext = blob.type.includes("mp4") ? "mp4" : "webm";
   const d = new Date();
-  const name = `${slug(state.name) || "cuadra"}-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}.${ext}`;
+  const name = `${slug(state.name) || "vicenvideo"}-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}.${ext}`;
   if (resultUrl) URL.revokeObjectURL(resultUrl);
   resultUrl = URL.createObjectURL(blob);
   const v = $("plResult");
