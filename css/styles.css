@@ -286,3 +286,5 @@ input.warm { accent-color: #F0A64B; }
 .many ol { padding-left: 18px; margin: 10px 0 6px; display: grid; gap: 6px; }
 .many b { color: var(--text); font-weight: 600; }
 .many p { margin: 6px 0 0; }
+
+.many a { color: var(--accent); font-weight: 600; text-decoration: none; }

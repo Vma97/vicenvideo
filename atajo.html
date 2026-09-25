@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E0F12">
+<title>Atajo VicenVideo</title>
+<link rel="icon" type="image/png" href="icons/icon-64.png">
+<style>
+  :root { --bg: #0E0F12; --panel: #17191E; --line: #2C3038; --text: #F2F3F5; --muted: #9AA1AD; --accent: #F55E7A; --accent2: #7E45D8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: calc(16px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)); }
+  main { max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  header img { width: 44px; height: 44px; border-radius: 11px; }
+  h1 { font-size: 22px; margin: 0; }
+  .lead { color: var(--muted); margin: 6px 0 22px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 28px 0 10px; }
+  ol { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 10px; }
+  ol > li { counter-increment: s; background: var(--panel); border-radius: 14px; padding: 12px 14px 12px 50px; position: relative; }
+  ol > li::before { content: counter(s); position: absolute; left: 12px; top: 11px; width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent2), var(--accent)); display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+  b { font-weight: 650; }
+  .act { display: inline-block; background: #2A2340; color: #D9C9FF; border-radius: 7px; padding: 0 7px; font-weight: 600; white-space: nowrap; }
+  ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  ul b { color: var(--text); }
+  .note { background: var(--panel); border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 12px; color: var(--muted); margin-top: 12px; font-size: 14px; }
+  a.btn { display: block; text-align: center; margin-top: 26px; padding: 14px; border-radius: 14px; color: #fff; text-decoration: none; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent2), var(--accent)); }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="icons/icon-192.png" alt=""><h1>Atajo «Vídeos a VicenVideo»</h1></header>
+  <p class="lead">Copia tus vídeos de la Fototeca, originales y sin convertir, a una carpeta. Desde ahí entran en VicenVideo al momento, aunque sean 40.</p>
+
+  <h2>Una sola vez: crear la carpeta</h2>
+  <ol>
+    <li>Abre <b>Archivos</b> → <b>En mi iPhone</b> → mantén pulsado un hueco vacío → <b>Nueva carpeta</b> → llámala <b>VicenVideo</b>.</li>
+  </ol>
+
+  <h2>Una sola vez: crear el atajo</h2>
+  <ol>
+    <li>Abre <b>Atajos</b> → <b>+</b> (arriba a la derecha). Arriba, cambia el nombre a <b>Vídeos a VicenVideo</b>.</li>
+    <li>Añade <span class="act">Obtener contenido de la carpeta</span>. Toca «Carpeta» y elige <b>En mi iPhone › VicenVideo</b>.</li>
+    <li>Añade <span class="act">Eliminar archivos</span>. Toca la flechita <b>›</b> y desactiva <b>Confirmar antes de eliminar</b>.
+      <ul><li>Así cada vez se vacía la carpeta y no se acumulan vídeos del día anterior.</li></ul></li>
+    <li>Añade <span class="act">Buscar fotos</span> y ponle estos filtros (toca <b>Añadir filtro</b>):
+      <ul>
+        <li><b>Tipo de contenido</b> es <b>Vídeo</b></li>
+        <li><b>Fecha de captura</b> es <b>hoy</b> (o «en los últimos 2 días», como prefieras)</li>
+        <li>Ordenar por <b>Fecha de captura</b>, <b>Más antiguo primero</b>. Sin límite.</li>
+      </ul></li>
+    <li>Añade <span class="act">Guardar archivo</span>. Toca la flechita <b>›</b>:
+      <ul>
+        <li>Desactiva <b>Preguntar dónde guardar</b></li>
+        <li>Toca la carpeta de destino y elige <b>En mi iPhone › VicenVideo</b></li>
+        <li>Activa <b>Sobrescribir si el archivo existe</b></li>
+      </ul></li>
+    <li>(Opcional) Añade <span class="act">Mostrar notificación</span> con el texto «Vídeos listos para VicenVideo».</li>
+    <li>Toca <b>OK</b>. Si quieres, desde el menú del atajo <b>Añadir a pantalla de inicio</b> y lo tienes al lado de la app.</li>
+  </ol>
+  <div class="note">Los nombres pueden variar un poco según la versión de iOS. Si no encuentras una acción, búscala en la barra de búsqueda de acciones de Atajos. La primera vez te pedirá permiso para acceder a Fotos y a Archivos: dale a <b>Permitir siempre</b>.</div>
+
+  <h2>Cada noche</h2>
+  <ol>
+    <li>Ejecuta el atajo <b>Vídeos a VicenVideo</b>. Si los vídeos están en iCloud, tardará lo que tarde en descargarlos (mejor con WiFi).</li>
+    <li>Abre <b>VicenVideo</b> → <b>Añadir clips</b> → <b>Seleccionar archivos</b> (no «Fototeca»).</li>
+    <li>Entra en <b>En mi iPhone › VicenVideo</b> → toca <b>•••</b> o <b>Seleccionar</b> → <b>Seleccionar todo</b> → <b>Abrir</b>.</li>
+    <li>Entran todos a la vez, ordenados por hora. Dale a <b>✨ Hazlo tú</b>.</li>
+  </ol>
+  <div class="note">¿Prefieres elegir tú los vídeos en vez de «los de hoy»? Cambia la acción <b>Buscar fotos</b> por <span class="act">Seleccionar fotos</span> y activa <b>Seleccionar varias</b>. El atajo también los copia originales, sin la conversión de Safari.</div>
+
+  <a class="btn" href="./">Volver a VicenVideo</a>
+</main>
+</body>
+</html>
