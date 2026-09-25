@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="64x64" href="icons/icon-64.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/styles.css?v=12">
+<link rel="stylesheet" href="css/styles.css?v=13">
 </head>
 <body class="fmt-story">
 
@@ -35,6 +35,14 @@
     <h1>Clips cortos → un vídeo de 1 min</h1>
     <p>Elige los vídeos de la galería. VicenVideo los ordena por hora, los encuadra, los une con transición y te lo saca en 1080.</p>
     <label class="btn primary big">Añadir clips<input type="file" id="fileInput" accept="video/*" multiple hidden></label>
+    <details class="many">
+      <summary>¿Muchos vídeos? (20, 40…) Mételos por tandas</summary>
+      <ol>
+        <li>Añade los vídeos <b>de 10 en 10</b> desde la Fototeca. Tras darle al <b>✓</b>, espera sin tocar: el iPhone los prepara antes de pasarlos (unos segundos por vídeo).</li>
+        <li>Repite con <b>+ Añadir más clips</b>. Cada tanda se coloca sola en su sitio por hora de grabación.</li>
+      </ol>
+      <p>Safari convierte cada vídeo de la Fototeca antes de dárselo a la app; con 40 de golpe son varios minutos sin ver nada. Si están en iCloud, primero se descargan: mejor con WiFi.</p>
+    </details>
   </section>
 
   <section id="project" hidden>
@@ -71,6 +79,14 @@
     </div>
     <div id="grid" class="grid"></div>
     <label class="add-more">+ Añadir más clips<input type="file" id="fileInput2" accept="video/*" multiple hidden></label>
+    <details class="many">
+      <summary>¿Muchos vídeos? (20, 40…) Mételos por tandas</summary>
+      <ol>
+        <li>Añade los vídeos <b>de 10 en 10</b> desde la Fototeca. Tras darle al <b>✓</b>, espera sin tocar: el iPhone los prepara antes de pasarlos (unos segundos por vídeo).</li>
+        <li>Repite con <b>+ Añadir más clips</b>. Cada tanda se coloca sola en su sitio por hora de grabación.</li>
+      </ol>
+      <p>Safari convierte cada vídeo de la Fototeca antes de dárselo a la app; con 40 de golpe son varios minutos sin ver nada. Si están en iCloud, primero se descargan: mejor con WiFi.</p>
+    </details>
   </section>
 </main>
 
@@ -204,6 +220,6 @@
 <!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
 <div id="vpool" aria-hidden="true"></div>
 
-<script src="js/app.js?v=12"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>

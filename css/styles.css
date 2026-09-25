@@ -277,3 +277,12 @@ input.warm { accent-color: #F0A64B; }
 
 .tile.missing { opacity: .45; outline: 1.5px dashed var(--warn); outline-offset: -2px; }
 .tile.missing .len { color: var(--warn); }
+
+/* ---------- Ayuda para muchos vídeos ---------- */
+.many { text-align: left; margin: 18px auto 20px; max-width: 360px; background: var(--panel); border-radius: 14px; padding: 12px 14px; font-size: 13px; color: var(--muted); }
+.many summary { cursor: pointer; color: var(--text); font-weight: 600; list-style: none; }
+.many summary::-webkit-details-marker { display: none; }
+.many summary::before { content: "💡 "; }
+.many ol { padding-left: 18px; margin: 10px 0 6px; display: grid; gap: 6px; }
+.many b { color: var(--text); font-weight: 600; }
+.many p { margin: 6px 0 0; }

@@ -489,7 +489,11 @@ async function addFiles(fileList) {
     if (n > 3) showToast(`Leyendo ${i + 1} de ${n}…`, "Vale", () => {});
     added[i].date = await readCreationDate(added[i].file);
   }
-  state.clips = state.clips.filter((c) => !added.includes(c)).concat(added.slice().sort(byDate));
+  // Si lo que ya había seguía el orden por hora (no se ha movido nada a mano), la tanda nueva
+  // se intercala en su sitio: así se pueden meter los vídeos de 10 en 10 y quedan en orden
+  const old = state.clips.filter((c) => !added.includes(c));
+  const inOrder = old.every((c, i) => i === 0 || byDate(old[i - 1], c) <= 0);
+  state.clips = inOrder ? old.concat(added).sort(byDate) : old.concat(added.slice().sort(byDate));
   render();
   // De uno en uno para no reventar la memoria del móvil con muchos decodificadores a la vez
   let bad = 0;
