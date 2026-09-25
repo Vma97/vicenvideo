@@ -5,6 +5,7 @@ Mini editor propio: junta clips cortos (≈4 s) en un vídeo vertical de 1080 pa
 - **Historia** 1080×1920 (9:16) o **Publicación** 1080×1350 (4:5)
 - Duración por clip 4 u 8 s; máximo 1 min en historia y 3 min en publicación (lo que sobra se corta), transición (corte, fundido, negro, deslizar, zoom)
 - Por clip: frame exacto de inicio, encuadre arrastrando y zoom
+- Igualar tono (No / Suave / Fuerte): mide luz y color de cada clip y los acerca a un tono común (WebGL)
 - Exporta MP4 y se guarda o comparte desde el menú del iPhone
 
 Es una PWA sin dependencias ni build: HTML + CSS + JS. Todo se procesa en el móvil

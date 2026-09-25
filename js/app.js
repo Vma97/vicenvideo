@@ -23,7 +23,7 @@ const TRANS_LEN = 0.5;          // segundos que dura cada transición
 const BITRATE = 12_000_000;     // 12 Mbps: buena calidad en 1080 sin pesar demasiado
 const MIN_SLOT = 0.5;
 
-const state = { clips: [], format: "story", dur: 4, trans: "fade" };
+const state = { clips: [], format: "story", dur: 4, trans: "fade", tone: "soft" };
 let nextId = 1;
 
 const $ = (id) => document.getElementById(id);
@@ -116,9 +116,142 @@ function drawCover(ctx, v, W, H, clip, o = {}) {
   const x = (W - dw) / 2 + clip.fx * (dw - W) / 2 + (o.dx || 0);
   const y = (H - dh) / 2 + clip.fy * (dh - H) / 2;
   ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
-  ctx.drawImage(v, x, y, dw, dh);
+  const g = o.raw ? null : gradeParams(clip);
+  if (g && grader.render(v, x, y, dw, dh, W, H, g)) ctx.drawImage(grader.canvas, 0, 0, W, H);
+  else ctx.drawImage(v, x, y, dw, dh);
   ctx.globalAlpha = 1;
 }
+
+// ---------------------------------------------------------------- igualar tono
+
+// Cada clip se analiza (media de R, G, B y contraste en varios frames del trozo usado).
+// El objetivo es la mediana de todos los clips del vídeo, y cada clip se corrige hacia ahí:
+// color = (color - media_clip) * contraste + media_objetivo. Así los oscuros suben, los
+// quemados bajan y los que tiran a azul o amarillo se acercan al tono común.
+const TONES = { off: "No", soft: "Suave", full: "Fuerte" };
+const TONE_STRENGTH = { off: 0, soft: 0.55, full: 1 };
+let toneTarget = null;
+
+const statsKey = (clip) => `${clip.start.toFixed(3)}|${state.dur}`;
+const median = (arr) => { const a = [...arr].sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+
+async function computeStats(v, clip) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 48;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  const len = slotLen(clip);
+  let r = 0, g = 0, b = 0, y = 0, y2 = 0, n = 0;
+  for (let k = 0; k < 5; k++) {
+    await seek(v, Math.min(clip.duration - 0.05, clip.start + len * (k + 0.5) / 5));
+    ctx.drawImage(v, 0, 0, 48, 48);
+    const d = ctx.getImageData(0, 0, 48, 48).data;
+    for (let i = 0; i < d.length; i += 4) {
+      const R = d[i] / 255, G = d[i + 1] / 255, B = d[i + 2] / 255;
+      const L = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+      r += R; g += G; b += B; y += L; y2 += L * L; n++;
+    }
+  }
+  const my = y / n;
+  clip.stats = { key: statsKey(clip), mean: [r / n, g / n, b / n], std: Math.sqrt(Math.max(0, y2 / n - my * my)) };
+}
+
+function computeToneTarget(tl) {
+  const st = tl.map((e) => e.clip.stats).filter(Boolean);
+  if (st.length < 2) return null;
+  return {
+    mean: [0, 1, 2].map((ch) => median(st.map((s) => s.mean[ch]))),
+    std: median(st.map((s) => s.std)),
+  };
+}
+
+function gradeParams(clip) {
+  const strength = TONE_STRENGTH[state.tone];
+  if (!strength || !toneTarget || !clip.stats) return null;
+  const s = clip.stats;
+  return {
+    m: s.mean,
+    // Límites para no destrozar clips muy distintos (un atardecer no debe volverse gris)
+    t: s.mean.map((m, ch) => m + clamp(toneTarget.mean[ch] - m, -0.18, 0.18)),
+    k: clamp(toneTarget.std / Math.max(s.std, 0.02), 0.8, 1.3),
+    s: strength,
+  };
+}
+
+// Recalcula lo que haya cambiado (trozo elegido o duración) antes de reproducir/exportar
+async function ensureStats(onProgress) {
+  const todo = usable().filter((c) => !c.stats || c.stats.key !== statsKey(c));
+  if (!todo.length) return;
+  const v = makeVideo();
+  try {
+    for (let i = 0; i < todo.length; i++) {
+      onProgress && onProgress(i, todo.length);
+      const clip = todo[i];
+      v.src = clip.url;
+      try {
+        await once(v, "loadedmetadata");
+        await prime(v);
+        await computeStats(v, clip);
+      } catch (e) { clip.stats = null; }
+    }
+  } finally {
+    dropVideo(v);
+  }
+}
+
+// Aplica la corrección con la GPU (WebGL): el vídeo se pinta en un canvas del tamaño
+// de salida con el shader de color, y ese canvas se copia al lienzo principal.
+const grader = {
+  canvas: null, gl: null, ok: null,
+  init() {
+    this.canvas = document.createElement("canvas");
+    const gl = this.canvas.getContext("webgl", { preserveDrawingBuffer: true, premultipliedAlpha: true, antialias: false });
+    if (!gl) return (this.ok = false);
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER,
+      "attribute vec2 pos; attribute vec2 tc; varying vec2 uv; void main(){ uv = tc; gl_Position = vec4(pos, 0.0, 1.0); }"));
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER,
+      "precision mediump float; varying vec2 uv; uniform sampler2D tex; uniform vec3 m; uniform vec3 t; uniform float k; uniform float s;" +
+      "void main(){ vec3 c = texture2D(tex, uv).rgb; vec3 o = clamp((c - m) * k + t, 0.0, 1.0); gl_FragColor = vec4(mix(c, o, s), 1.0); }"));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return (this.ok = false);
+    gl.useProgram(p);
+    this.buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    const aPos = gl.getAttribLocation(p, "pos"), aTc = gl.getAttribLocation(p, "tc");
+    gl.enableVertexAttribArray(aPos);
+    gl.enableVertexAttribArray(aTc);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(aTc, 2, gl.FLOAT, false, 16, 8);
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    this.u = { m: gl.getUniformLocation(p, "m"), t: gl.getUniformLocation(p, "t"), k: gl.getUniformLocation(p, "k"), s: gl.getUniformLocation(p, "s") };
+    this.gl = gl;
+    return (this.ok = true);
+  },
+  render(v, x, y, dw, dh, W, H, g) {
+    if (this.ok === null) this.init();
+    if (!this.ok) return false;
+    const gl = this.gl;
+    if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); } catch (e) { return false; }
+    const X0 = x / W * 2 - 1, X1 = (x + dw) / W * 2 - 1, Y0 = 1 - y / H * 2, Y1 = 1 - (y + dh) / H * 2;
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([X0, Y0, 0, 0, X1, Y0, 1, 0, X0, Y1, 0, 1, X1, Y1, 1, 1]), gl.STREAM_DRAW);
+    gl.uniform3fv(this.u.m, g.m);
+    gl.uniform3fv(this.u.t, g.t);
+    gl.uniform1f(this.u.k, g.k);
+    gl.uniform1f(this.u.s, g.s);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    return true;
+  },
+};
 
 // Ajusta el tamaño CSS del canvas para que quepa en su contenedor manteniendo proporción.
 function fitCanvas(canvas, stage) {
@@ -137,11 +270,12 @@ function loadPrefs() {
     if (FORMATS[p.format]) state.format = p.format;
     if (DURS.includes(p.dur)) state.dur = p.dur;
     if (TRANSITIONS[p.trans]) state.trans = p.trans;
+    if (p.tone in TONE_STRENGTH) state.tone = p.tone;
   } catch (e) { /* sin almacenamiento, valores por defecto */ }
 }
 function savePrefs() {
   try {
-    localStorage.setItem("cuadra-prefs", JSON.stringify({ format: state.format, dur: state.dur, trans: state.trans }));
+    localStorage.setItem("cuadra-prefs", JSON.stringify({ format: state.format, dur: state.dur, trans: state.trans, tone: state.tone }));
   } catch (e) { /* nada */ }
 }
 
@@ -172,6 +306,7 @@ async function probe(clip) {
     clip.duration = isFinite(v.duration) ? v.duration : 0;
     if (!clip.duration) throw new Error("sin duración");
     await prime(v);
+    try { await computeStats(v, clip); } catch (e) { clip.stats = null; }
     await seek(v, Math.min(0.05, clip.duration / 2));
     clip.thumb = snapshot(v, clip);
   } finally {
@@ -187,7 +322,7 @@ function snapshot(v, clip) {
   const ctx = c.getContext("2d");
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, c.width, c.height);
-  drawCover(ctx, v, c.width, c.height, clip);
+  drawCover(ctx, v, c.width, c.height, clip, { raw: true });
   return c.toDataURL("image/jpeg", 0.72);
 }
 
@@ -230,8 +365,10 @@ function render() {
   ], state.format, "format");
   renderSeg($("segDur"), DURS.map((d) => [d, d + " s"]), state.dur, "dur");
   renderSeg($("segTrans"), Object.entries(TRANSITIONS), state.trans, "trans");
+  renderSeg($("segTone"), Object.entries(TONES), state.tone, "tone");
 
   const tl = buildTimeline();
+  toneTarget = computeToneTarget(tl);
   const total = tl.reduce((s, e) => s + e.len, 0);
   const max = FORMATS[state.format].max;
   const over = rawTotal() > max + 0.05;
@@ -464,7 +601,12 @@ function closeEditor() {
   // La miniatura pasa a ser el frame y encuadre elegidos
   if (clip && ed.v && ed.v.readyState >= 2) {
     const v = ed.v;
-    seek(v, clip.start).then(() => { clip.thumb = snapshot(v, clip); renderGrid(); }).catch(() => {});
+    seek(v, clip.start).then(async () => {
+      clip.thumb = snapshot(v, clip);
+      // Si ha cambiado el trozo, se vuelve a medir su luz (salvo que ya se esté editando otro clip)
+      if (!ed.clip && (!clip.stats || clip.stats.key !== statsKey(clip))) await computeStats(v, clip);
+      render();
+    }).catch(() => {});
   }
   ed.clip = null;
   $("editor").hidden = true;
@@ -775,6 +917,11 @@ async function startPlayer(record) {
 
   if (record) {
     try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { wakeLock = null; }
+  }
+  if (TONE_STRENGTH[state.tone]) {
+    await ensureStats((i, n) => setStatus(`Igualando tono… ${i + 1}/${n}`));
+    if ($("player").hidden) { releaseWake(); return; }
+    toneTarget = computeToneTarget(tl);
   }
 
   let stalled = false;
