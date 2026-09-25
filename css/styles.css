@@ -274,3 +274,6 @@ input.warm { accent-color: #F0A64B; }
 /* ---------- Logo ---------- */
 .logo { width: 26px; height: 26px; border-radius: 7px; flex: none; align-self: center; box-shadow: 0 2px 8px rgba(126, 69, 216, .35); }
 .proj-btn { align-items: center; }
+
+.tile.missing { opacity: .45; outline: 1.5px dashed var(--warn); outline-offset: -2px; }
+.tile.missing .len { color: var(--warn); }

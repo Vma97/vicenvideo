@@ -19,7 +19,8 @@ Mini editor propio: junta clips cortos (≈4 s) en un vídeo vertical de 1080 pa
   - **Matrículas automáticas** con seguimiento: YOLOv9-tiny de [open-image-models](https://github.com/ankandrew/open-image-models) (MIT) en `models/`, con onnxruntime-web
   - **Encuadre inteligente**: MediaPipe Object Detector (EfficientDet-Lite0) centra al protagonista en clips horizontales, con paneo si se mueve
 - Duplicar clip, deshacer al quitar, reordenar arrastrando
-- **Borradores**: lo que editas se guarda solo en el móvil (IndexedDB); «Guardar» le pone nombre y lo deja en la lista
+- **Borradores**: se guarda solo el montaje (orden, trozos, encuadre, luz, matrículas…), nunca copias de los vídeos,
+  que ya están en la galería. Al reabrir, los clips salen como «falta el vídeo» y al volver a elegirlos se recolocan solos
 - Exporta MP4 y se guarda o comparte desde el menú del iPhone
 
 Es una PWA sin dependencias ni build: HTML + CSS + JS. Todo se procesa en el móvil

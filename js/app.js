@@ -110,12 +110,12 @@ function clipDur() {
 function maxStart(clip) { return Math.max(0, clip.duration - clipDur() * clip.speed); }
 function slotLen(clip) { return Math.max(MIN_SLOT, Math.min(clipDur(), (clip.duration - clip.start) / clip.speed)); }
 function footage(clip) { return slotLen(clip) * clip.speed; }
-function usable() { return state.clips.filter((c) => !c.loading && !c.error && c.duration > 0); }
+function usable() { return state.clips.filter((c) => !c.loading && !c.error && !c.missing && c.duration > 0); }
 function clampStarts() { for (const c of state.clips) c.start = Math.min(c.start, maxStart(c)); }
 
 function normalizeClip(c) {
   return Object.assign(
-    { zoom: 1, fx: 0, fy: 0, fx2: null, fy2: null, speed: 1, stats: null, date: null, kb: "none", zones: [], loading: false, error: false },
+    { zoom: 1, fx: 0, fy: 0, fx2: null, fy2: null, speed: 1, stats: null, date: null, kb: "none", zones: [], loading: false, error: false, missing: false },
     c,
     { adj: Object.assign({ bright: 0, warm: 0, sat: 1 }, c.adj) },
   );
@@ -407,7 +407,9 @@ async function readCreationDate(file) {
       if (len === 1) { len = Number(h.getBigUint64(8)); hl = 16; } else if (len === 0) len = size - off;
       if (len < 8) return null;
       if (type === "moov") {
-        const end = off + Math.min(len, 16 * 1024 * 1024);
+        // mvhd va al principio del moov: con 64 KB sobra (antes se leía hasta 16 MB por vídeo
+        // y con muchos vídeos a la vez Safari se quedaba sin memoria)
+        const end = off + Math.min(len, 64 * 1024);
         const dv = new DataView(await file.slice(off + hl, end).arrayBuffer());
         for (let o = 0; o + 8 <= dv.byteLength;) {
           const bl = dv.getUint32(o);
@@ -451,23 +453,56 @@ function sortByDate() {
 // ---------------------------------------------------------------- añadir clips
 
 async function addFiles(fileList) {
-  const files = [...fileList].filter((f) => (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|3gp)$/i.test(f.name));
-  if (!files.length) return;
-  // La hora se lee antes para que la tanda entre ya ordenada
-  const dates = await Promise.all(files.map(readCreationDate));
-  const added = files.map((f, i) => normalizeClip({
-    id: nextId, fileKey: nextId++, file: f, url: URL.createObjectURL(f), name: f.name,
-    duration: 0, thumb: "", start: 0, date: dates[i], loading: true,
-  })).sort(byDate);
+  const all = [...fileList];
+  if (!all.length) {
+    showToast("No ha llegado ningún vídeo. Si eran muchos, prueba de 10 en 10", "Vale", () => {}, 6000);
+    return;
+  }
+  const files = all.filter((f) => (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|3gp|hevc)$/i.test(f.name));
+  if (!files.length) { showToast("Eso no parecen vídeos", "Vale", () => {}, 4000); return; }
+  // Los vídeos que ya estaban en el montaje (guardado sin el vídeo) vuelven a su sitio con sus ajustes
+  const fresh = [];
+  let relinked = 0;
+  for (const f of files) {
+    const same = state.clips.filter((c) => c.missing && c.name === f.name && (c.size == null || c.size === f.size));
+    if (!same.length) { fresh.push(f); continue; }
+    const url = URL.createObjectURL(f);
+    for (const c of same) Object.assign(c, { file: f, url, missing: false });
+    relinked++;
+  }
+  if (relinked) {
+    render();
+    const left = state.clips.filter((c) => c.missing).length;
+    showToast(`${relinked} vídeo${relinked === 1 ? "" : "s"} recolocado${relinked === 1 ? "" : "s"}` + (left ? ` · faltan ${left}` : " · montaje completo"), "Vale", () => {}, 4000);
+  }
+  if (!fresh.length) return;
+  // Los clips salen al momento (cargando) para que se vea que han llegado
+  const added = fresh.map((f) => normalizeClip({
+    id: nextId, fileKey: nextId++, file: f, url: URL.createObjectURL(f), name: f.name, size: f.size,
+    duration: 0, thumb: "", start: 0, loading: true,
+  }));
   state.clips.push(...added);
   render();
+  const n = added.length;
+  // Hora de grabación de uno en uno (poca memoria) y la tanda se ordena por hora
+  for (let i = 0; i < n; i++) {
+    if (n > 3) showToast(`Leyendo ${i + 1} de ${n}…`, "Vale", () => {});
+    added[i].date = await readCreationDate(added[i].file);
+  }
+  state.clips = state.clips.filter((c) => !added.includes(c)).concat(added.slice().sort(byDate));
+  render();
   // De uno en uno para no reventar la memoria del móvil con muchos decodificadores a la vez
-  for (const clip of added) {
-    try { await probe(clip); } catch (e) { clip.error = true; }
+  let bad = 0;
+  const batch = state.clips.filter((c) => added.includes(c));
+  for (let i = 0; i < n; i++) {
+    const clip = batch[i];
+    if (n > 3) showToast(`Preparando clip ${i + 1} de ${n}…`, "Vale", () => {});
+    try { await probe(clip); } catch (e) { clip.error = true; bad++; }
     clip.loading = false;
     render();
-    if (!clip.error) store.putFile(clip.fileKey, clip.file);
   }
+  if (bad) showToast(`${bad} vídeo${bad === 1 ? "" : "s"} no se ha${bad === 1 ? "" : "n"} podido leer`, "Vale", () => {}, 5000);
+  else if (n > 3) showToast(`${n} clips listos`, "Vale", () => {}, 2500);
 }
 
 async function probe(clip) {
@@ -504,7 +539,7 @@ function releaseUrl(url) {
   if (!state.clips.some((c) => c.url === url) && !(undo && undo.clip.url === url)) URL.revokeObjectURL(url);
 }
 function releaseAllUrls() {
-  new Set(state.clips.map((c) => c.url)).forEach((u) => URL.revokeObjectURL(u));
+  new Set(state.clips.map((c) => c.url).filter(Boolean)).forEach((u) => URL.revokeObjectURL(u));
 }
 
 let undo = null;
@@ -634,6 +669,7 @@ function renderGrid(tl = buildTimeline()) {
     t.className = "tile";
     t.dataset.id = clip.id;
     if (clip.loading) t.classList.add("loading");
+    if (clip.missing) t.classList.add("missing");
     if (clip.error) {
       t.classList.add("err");
       t.textContent = "No se puede leer este vídeo";
@@ -651,7 +687,12 @@ function renderGrid(tl = buildTimeline()) {
       time.textContent = fmtClock(clip.date);
       t.appendChild(time);
     }
-    if (!clip.loading && !clip.error) {
+    if (clip.missing) {
+      const m = document.createElement("span");
+      m.className = "len";
+      m.textContent = "falta el vídeo";
+      t.appendChild(m);
+    } else if (!clip.loading && !clip.error) {
       const marks = [];
       if (clip.speed !== 1) marks.push(fmtSpeed(clip.speed));
       if (clip.kb !== "none") marks.push("🔍");
@@ -1371,6 +1412,10 @@ const ed = { clip: null, v: null, raf: 0, playing: false, pending: null, seeking
 async function openEditor(id) {
   const clip = state.clips.find((c) => c.id === id);
   if (!clip || clip.loading || clip.error) return;
+  if (clip.missing) {
+    showToast(`Falta «${clip.name}». Añádelo desde la galería y vuelve a su sitio`, "Vale", () => {}, 5000);
+    return;
+  }
   ed.clip = clip;
   ed.key = "start";
   ed.zone = clip.zones.length ? 0 : -1;
@@ -2130,7 +2175,7 @@ document.addEventListener("visibilitychange", () => {
 //   files:  fileKey → vídeo original (compartido entre duplicados)
 //   meta:   "projects" → índice de proyectos, "project:<id>" → ajustes y clips,
 //           "current" → proyecto abierto, "counter" → siguiente id libre
-const CLIP_KEYS = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "fx2", "fy2", "smart", "speed", "stats", "date", "adj", "kb", "zones", "ana"];
+const CLIP_KEYS = ["id", "fileKey", "name", "size", "duration", "thumb", "start", "zoom", "fx", "fy", "fx2", "fy2", "smart", "speed", "stats", "date", "adj", "kb", "zones", "ana"];
 const SETTING_KEYS = Object.keys(DEFAULTS);
 
 const store = {
@@ -2163,13 +2208,18 @@ const store = {
   put(key, val) { return this.req("meta", "readwrite", (s) => s.put(val, key)); },
   async index() { return (await this.get("projects")) || []; },
 
-  async putFile(key, file) {
-    try { await this.req("files", "readwrite", (s) => s.put(file, key)); }
-    catch (e) {
-      if (this.failed) return;
-      this.failed = true;
-      showToast("No hay espacio para guardar los clips: si cierras la app se perderán", "Vale", () => {});
-    }
+  // En fila: con decenas de vídeos grandes, guardarlos todos a la vez dispara la memoria
+  _files: Promise.resolve(),
+  putFile(key, file) {
+    this._files = this._files.then(async () => {
+      try { await this.req("files", "readwrite", (s) => s.put(file, key)); }
+      catch (e) {
+        if (this.failed) return;
+        this.failed = true;
+        showToast("No hay espacio para guardar los clips: si cierras la app se perderán", "Vale", () => {});
+      }
+    });
+    return this._files;
   },
   saveSoon() {
     clearTimeout(this._timer);
@@ -2200,13 +2250,10 @@ const store = {
     await this.put("projects", list);
     await this.put("current", state.projectId);
     await this.put("counter", nextId);
-    // Borra los vídeos que ya no usa ningún clip de ningún proyecto
-    const used = new Set(list.flatMap((p) => p.fileKeys || []));
-    state.clips.forEach((c) => used.add(c.fileKey));
-    if (undo) used.add(undo.clip.fileKey);
+    // La app ya no guarda copias de los vídeos (están en la galería): si quedan de versiones
+    // anteriores, se borran para liberar espacio. Solo se guarda el montaje.
     const keys = await this.req("files", "readonly", (s) => s.getAllKeys());
-    const unused = keys.filter((k) => !used.has(k));
-    if (unused.length) await this.req("files", "readwrite", (s) => { unused.forEach((k) => s.delete(k)); });
+    if (keys.length) await this.req("files", "readwrite", (s) => s.clear());
   },
 
   async load(id) {
@@ -2220,7 +2267,8 @@ const store = {
         files.set(c.fileKey, file ? { file, url: URL.createObjectURL(file) } : null);
       }
       const f = files.get(c.fileKey);
-      if (f) clips.push(normalizeClip({ ...c, file: f.file, url: f.url }));
+      // Si el vídeo no está guardado en la app (lo normal), el clip queda a la espera de volver a elegirlo
+      clips.push(normalizeClip(f ? { ...c, file: f.file, url: f.url } : { ...c, file: null, url: null, missing: true }));
     }
     Object.assign(state, DEFAULTS, rec.settings || {}, { projectId: id, name: rec.name, saved: !!rec.saved, clips });
     nextId = Math.max(nextId, ...clips.map((c) => Math.max(c.id, c.fileKey) + 1));
@@ -2282,8 +2330,15 @@ const store = {
     }
     this.restored = true;
     render();
+    warnMissing();
   },
 };
+
+// Aviso al abrir un montaje cuyos vídeos hay que volver a elegir de la galería
+function warnMissing() {
+  const names = new Set(state.clips.filter((c) => c.missing).map((c) => c.name));
+  if (names.size) showToast(`Faltan ${names.size} vídeo${names.size === 1 ? "" : "s"}: añádelos desde la galería y se colocan solos con sus ajustes`, "Vale", () => {}, 7000);
+}
 
 // ---------------------------------------------------------------- borradores
 
@@ -2363,6 +2418,7 @@ async function openDraft(id) {
   closeDrafts();
   window.scrollTo(0, 0);
   render();
+  warnMissing();
 }
 
 async function openDrafts() {
