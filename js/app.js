@@ -117,7 +117,7 @@ function normalizeClip(c) {
   return Object.assign(
     { zoom: 1, fx: 0, fy: 0, fx2: null, fy2: null, speed: 1, stats: null, date: null, kb: "none", zones: [], loading: false, error: false, missing: false },
     c,
-    { adj: Object.assign({ bright: 0, warm: 0, sat: 1 }, c.adj) },
+    { adj: Object.assign({ bright: 0, warm: 0, sat: 1 }, c.adj), fx2: null, fy2: null },
   );
 }
 
@@ -1257,14 +1257,11 @@ async function smartFrame(clip, v, job) {
   const fyFor = (cy) => (r.dh - f.h > 1 ? clamp(2 * r.dh * (0.45 - cy) / (r.dh - f.h), -1, 1) : 0);
   const a = found[0], b = found[found.length - 1];
   const fa = fxFor(a.cx), fb = fxFor(b.cx);
-  if (found.length > 1 && Math.abs(fb - fa) > 0.2) {
-    clip.fx = fa; clip.fx2 = fb;
-    clip.fy = fyFor(a.cy); clip.fy2 = fyFor(b.cy);
-  } else {
-    clip.fx = fxFor(avg(found.map((q) => q.cx)));
-    clip.fy = fyFor(avg(found.map((q) => q.cy)));
-    clip.fx2 = clip.fy2 = null;
-  }
+  // Encuadre fijo centrado en el protagonista (el paneo siguiéndolo quedaba mal)
+  void fa; void fb;
+  clip.fx = fxFor(avg(found.map((q) => q.cx)));
+  clip.fy = fyFor(avg(found.map((q) => q.cy)));
+  clip.fx2 = clip.fy2 = null;
   clip.smart = main;
   return main;
 }

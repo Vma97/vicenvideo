@@ -1,13 +1,13 @@
 // Service worker: cachea la app para que funcione sin conexión.
 // Red primero (siempre la versión más nueva si hay internet), caché si no.
-const CACHE = "cuadra-shell-v18";
+const CACHE = "cuadra-shell-v19";
 const SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
   "./atajo.html",
   "./css/styles.css?v=16",
-  "./js/app.js?v=16",
+  "./js/app.js?v=17",
   "./icons/icon-180.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
