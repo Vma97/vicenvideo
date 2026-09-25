@@ -268,3 +268,5 @@ input.warm { accent-color: #F0A64B; }
 /* ---------- Trabajos largos ---------- */
 .busy-bar { margin: 0 0 14px; }
 #busyBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
+
+.tools { flex-wrap: wrap; }

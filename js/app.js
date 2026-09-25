@@ -115,7 +115,7 @@ function clampStarts() { for (const c of state.clips) c.start = Math.min(c.start
 
 function normalizeClip(c) {
   return Object.assign(
-    { zoom: 1, fx: 0, fy: 0, speed: 1, stats: null, date: null, kb: "none", zones: [], loading: false, error: false },
+    { zoom: 1, fx: 0, fy: 0, fx2: null, fy2: null, speed: 1, stats: null, date: null, kb: "none", zones: [], loading: false, error: false },
     c,
     { adj: Object.assign({ bright: 0, warm: 0, sat: 1 }, c.adj) },
   );
@@ -148,9 +148,12 @@ function coverRect(vw, vh, W, H, clip, o = {}) {
   const kb = clip.kb === "in" ? 1 + KB_AMOUNT * ease(p) : clip.kb === "out" ? 1 + KB_AMOUNT * (1 - ease(p)) : 1;
   const s = Math.max(W / vw, H / vh) * clip.zoom * kb * (o.scale || 1);
   const dw = vw * s, dh = vh * s;
+  // Con encuadre inteligente el recorte puede ir de fx/fy a fx2/fy2 (paneo siguiendo al sujeto)
+  const fx = clip.fx2 == null ? clip.fx : clip.fx + (clip.fx2 - clip.fx) * p;
+  const fy = clip.fy2 == null ? clip.fy : clip.fy + (clip.fy2 - clip.fy) * p;
   return {
-    x: (W - dw) / 2 + clip.fx * (dw - W) / 2 + (o.dx || 0),
-    y: (H - dh) / 2 + clip.fy * (dh - H) / 2,
+    x: (W - dw) / 2 + fx * (dw - W) / 2 + (o.dx || 0),
+    y: (H - dh) / 2 + fy * (dh - H) / 2,
     dw, dh,
   };
 }
@@ -165,7 +168,7 @@ function drawCover(ctx, v, W, H, clip, o = {}) {
   else ctx.drawImage(v, r.x, r.y, r.dw, r.dh);
   ctx.globalAlpha = 1;
   if (!o.raw) for (const z of clip.zones) {
-    const q = zoneCanvasRect(z, r, o.p || 0);
+    const q = zoneCanvasRect(z, r, o.p || 0, clip);
     pixelate(ctx, q.x, q.y, q.w, q.h, W, H);
   }
 }
@@ -175,15 +178,25 @@ function drawCover(ctx, v, W, H, clip, o = {}) {
 // Cada zona se guarda en coordenadas del vídeo original (0–1), así sigue a la imagen
 // aunque cambie el encuadre o el zoom. Si tiene posición final (x2/y2), se mueve en
 // línea recta del inicio al final del trozo usado.
-function zoneAt(z, p) {
+function zoneAt(z, p, clip) {
+  if (z.track) {
+    // Recuadro automático: posiciones medidas en varios instantes (tiempo del vídeo original)
+    const tr = z.track, t = clip.start + p * footage(clip);
+    if (t <= tr[0].t) return tr[0];
+    if (t >= tr[tr.length - 1].t) return tr[tr.length - 1];
+    let i = 1;
+    while (tr[i].t < t) i++;
+    const a = tr[i - 1], b = tr[i], k = (t - a.t) / (b.t - a.t);
+    return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, w: a.w + (b.w - a.w) * k, h: a.h + (b.h - a.h) * k };
+  }
   return {
     x: z.x2 == null ? z.x : z.x + (z.x2 - z.x) * p,
     y: z.y2 == null ? z.y : z.y + (z.y2 - z.y) * p,
     w: z.w, h: z.h,
   };
 }
-function zoneCanvasRect(z, r, p) {
-  const q = zoneAt(z, clamp(p, 0, 1));
+function zoneCanvasRect(z, r, p, clip) {
+  const q = zoneAt(z, clamp(p, 0, 1), clip);
   return { x: r.x + q.x * r.dw, y: r.y + q.y * r.dh, w: q.w * r.dw, h: q.h * r.dh };
 }
 
@@ -643,6 +656,7 @@ function renderGrid(tl = buildTimeline()) {
       if (clip.speed !== 1) marks.push(fmtSpeed(clip.speed));
       if (clip.kb !== "none") marks.push("🔍");
       if (clip.zones.length) marks.push("▦");
+      if (clip.fx2 != null || clip.smart) marks.push("🎯");
       const len = document.createElement("span");
       const l = lens.get(clip);
       if (l == null) {
@@ -760,13 +774,13 @@ async function analyzeClip(clip, v, job) {
 
 // Nota de cada posible trozo: nítido, sin tirones de cámara, bien expuesto, con algo de
 // vida y lejos del principio y del final (cuando le das a grabar y cuando bajas el móvil)
-function bestWindow(clip) {
+function windowScores(clip) {
   const a = clip.ana;
-  if (!a || !a.f.length) return null;
+  if (!a || !a.f.length) return [];
   const f = a.f, st = a.step, len = footage(clip), need = Math.max(2, Math.round(len / st));
   const maxSharp = Math.max(...f.map((x) => x[0])) || 1;
   const EDGE = 0.6;
-  let best = null;
+  const out = [];
   for (let i = 0; i === 0 || i * st <= maxStart(clip) + 1e-6; i++) {
     const win = f.slice(i, i + need + 1);   // +1: también el frame donde acaba el trozo
     if (!win.length) break;
@@ -783,9 +797,70 @@ function bestWindow(clip) {
       - 1.5 * avg(win.map((x) => (x[3] < 0.08 || x[3] > 0.93 ? 1 : 0)))
       - 0.3 * ((s0 < EDGE ? 1 : 0) + (s1 > clip.duration - EDGE ? 1 : 0))
       + 0.15 * Math.min(1, avg(moves.map((x) => x[2])) / 0.08);
-    if (!best || score > best.score) best = { start: s0, score, cam };
+    out.push({ start: s0, score, cam });
   }
+  return out;
+}
+
+function bestWindow(clip) {
+  let best = null;
+  for (const w of windowScores(clip)) if (!best || w.score > best.score) best = w;
   return best;
+}
+
+// Vídeo largo: la combinación de trozos buenos (sin pisarse, con 0,4 s de aire) que más
+// aprovecha el vídeo. Se resuelve como un reparto óptimo (programación dinámica) en vez de
+// coger primero el mejor, que a veces cae en medio de un buen tramo y bloquea a sus vecinos.
+function bestWindows(clip, maxN, slack = 0.35) {
+  const ws = windowScores(clip);
+  if (!ws.length || maxN < 1) return [];
+  const top = Math.max(...ws.map((w) => w.score)), floor = top - slack, gap = footage(clip) + 0.4;
+  const c = ws.filter((w) => w.score >= floor).sort((x, y) => x.start - y.start);
+  const n = c.length;
+  if (!n) return [];
+  const prev = c.map((w, i) => { let j = i - 1; while (j >= 0 && w.start - c[j].start < gap) j--; return j; });
+  const weight = (w) => w.score - floor + 0.05;   // siempre positivo: más trozos buenos, mejor
+  const NEG = -1e9;
+  const dp = Array.from({ length: maxN + 1 }, (_, k) => { const r = new Float64Array(n + 1).fill(k ? NEG : 0); return r; });
+  for (let k = 1; k <= maxN; k++) {
+    for (let i = 1; i <= n; i++) {
+      const take = dp[k - 1][prev[i - 1] + 1] + weight(c[i - 1]);
+      dp[k][i] = Math.max(dp[k][i - 1], take);
+    }
+  }
+  let k = 0;
+  for (let q = 1; q <= maxN; q++) if (dp[q][n] > dp[k][n]) k = q;
+  const pick = [];
+  for (let i = n; k > 0 && i > 0;) {
+    if (dp[k][i] === dp[k][i - 1]) { i--; continue; }
+    pick.push(c[i - 1]);
+    i = prev[i - 1] + 1;
+    k--;
+  }
+  return pick.sort((x, y) => x.start - y.start);
+}
+
+// ¿Cuántos trozos se le pueden sacar como mucho? Se parten los vídeos de 3 trozos o más
+// (12 s con clips de 4 s); lo que no llegue al nivel se descarta, aunque salgan menos.
+const piecesFor = (clip) => Math.min(15, Math.floor(clip.duration / (footage(clip) + 0.4)));
+const isLong = (clip) => clip.duration >= footage(clip) * 3;
+
+// Parte un clip en varios: el primero se queda en el propio clip y el resto son clips nuevos
+// del mismo vídeo justo detrás. La hora de cada trozo es la del vídeo más su segundo de inicio,
+// así el orden por hora los deja en su sitio.
+function splitClip(clip, wins) {
+  if (!wins.length) return [clip];
+  const base = clip.date;
+  const parts = wins.map((w, i) => {
+    const c = i === 0 ? clip : cloneClip(clip);
+    c.start = w.start;
+    c.quality = w.score;
+    c.cam = w.cam;
+    if (i > 0 && base != null) c.date = base + w.start * 1000;
+    return c;
+  });
+  state.clips.splice(state.clips.indexOf(clip) + 1, 0, ...parts.slice(1));
+  return parts;
 }
 
 // Ventana de progreso con Cancelar para los trabajos largos
@@ -800,6 +875,46 @@ function setBusy(text, frac) {
   $("busyBar").style.width = (clamp(frac, 0, 1) * 100).toFixed(1) + "%";
 }
 function hideBusy() { $("busy").hidden = true; }
+
+// Director: decide look, transición e igualado de tono mirando los clips que entran.
+// No es magia: son reglas de montador aplicadas a lo que mide la app (luz, color, movimiento).
+function directorChoices(tl) {
+  const st = tl.map((e) => e.clip.stats).filter(Boolean);
+  if (!st.length) return null;
+  const lum = (m) => 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
+  const L = avg(st.map((q) => lum(q.mean)));
+  const warm = avg(st.map((q) => q.mean[0] - q.mean[2]));
+  const sat = avg(st.map((q) => Math.max(...q.mean) - Math.min(...q.mean)));
+  const greenBlue = avg(st.map((q) => (q.mean[1] > q.mean[0] || q.mean[2] > q.mean[0] ? 1 : 0)));
+  const spread = Math.max(...st.map((q) => lum(q.mean))) - Math.min(...st.map((q) => lum(q.mean)));
+  const cam = avg(tl.map((e) => (e.clip.cam == null ? 0 : e.clip.cam)));
+  let look = "natural", why = "";
+  if (L < 0.25) { look = "cine"; why = "poca luz"; }
+  else if (warm > 0.08) { look = "calido"; why = "tonos cálidos"; }
+  else if (sat < 0.05) { look = "cine"; why = "día gris"; }
+  else if (greenBlue > 0.6) { look = "vivo"; why = "paisaje verde/azul"; }
+  const trans = state.durMode === "beat" ? "cut" : cam > 1.5 ? "zoom" : "fade";
+  return { look, why, trans, tone: spread > 0.2 ? "full" : "soft" };
+}
+
+async function splitEditorClip() {
+  edStop();
+  const clip = ed.clip, job = { stop: false };
+  showBusy("Buscando los mejores trozos…", job);
+  const before = state.clips.slice();
+  try {
+    await analyzeClip(clip, ed.v, job);
+    const parts = splitClip(clip, bestWindows(clip, piecesFor(clip)));
+    showToast(`${parts.length} trozos sacados de este vídeo`, "Deshacer", () => {
+      const added = state.clips.filter((c) => !before.includes(c));
+      state.clips = before;
+      added.forEach((c) => releaseUrl(c.url));
+      render();
+    }, 8000);
+  } catch (e) { /* cancelado */ }
+  hideBusy();
+  if (ed.clip === clip) { updateEditorUI(); edSeek(clip.start); }
+}
 
 async function bestPartOfEditorClip() {
   edStop();
@@ -819,12 +934,16 @@ async function bestPartOfEditorClip() {
 }
 
 async function autoEdit() {
-  const clips = usable();
+  let clips = usable();
   if (!clips.length || state.clips.some((c) => c.loading)) return;
+  const mode = await ask("¿Usar la IA? Encuadra al protagonista en los clips horizontales y tapa las matrículas. La primera vez descarga unos 40 MB (mejor con WiFi) y tarda un poco más.", [
+    ["ai", "Con IA", "primary"], ["basic", "Sin IA"], ["cancel", "Cancelar"],
+  ]);
+  if (mode === "cancel") return;
   const before = {
     order: state.clips.slice(),
-    vals: state.clips.map((c) => ({ c, start: c.start, kb: c.kb, thumb: c.thumb })),
-    tone: state.tone,
+    vals: state.clips.map((c) => ({ c, start: c.start, kb: c.kb, thumb: c.thumb, fx: c.fx, fy: c.fy, fx2: c.fx2, fy2: c.fy2, zones: c.zones, date: c.date })),
+    tone: state.tone, look: state.look, trans: state.trans, fades: state.fades,
   };
   const job = { stop: false };
   showBusy("Analizando clips…", job);
@@ -833,20 +952,30 @@ async function autoEdit() {
   const v = makeVideo();
   try {
     for (let i = 0; i < clips.length; i++) {
-      setBusy(`Mirando clip ${i + 1} de ${clips.length}…`, i / clips.length * 0.85);
+      setBusy(`Mirando clip ${i + 1} de ${clips.length}…`, i / clips.length * (mode === "ai" ? 0.5 : 0.85));
       await analyzeClip(clips[i], v, job);
     }
-    // Mejor trozo de cada uno y zoom lento solo en los planos quietos (en uno que ya
-    // se mueve queda raro), alternando acercar y alejar
-    const sorted = state.clips.slice().sort(byDate);
-    let k = 0;
-    for (const c of sorted) {
-      if (!clips.includes(c)) continue;
+    // Mejor trozo de cada uno; los vídeos largos se parten en sus mejores trozos. Se reparten
+    // los trozos que faltan para llenar el vídeo (1 min en historia) según lo que dura cada largo.
+    const longs = clips.filter(isLong);
+    const need = Math.ceil(FORMATS[state.format].max / clipDur()) - (clips.length - longs.length);
+    const longDur = longs.reduce((t, c) => t + c.duration, 0);
+    for (const c of clips) {
+      if (isLong(c)) {
+        const share = Math.max(2, Math.round(need * c.duration / longDur));
+        splitClip(c, bestWindows(c, Math.min(piecesFor(c), share), 0.6));
+        continue;
+      }
       const b = bestWindow(c);
       c.quality = b ? b.score : 0;
+      c.cam = b ? b.cam : 9;
       if (b) c.start = b.start;
-      c.kb = b && b.cam < 0.8 ? (k++ % 2 ? "out" : "in") : "none";
     }
+    clips = usable();
+    // Zoom lento solo en los planos quietos (en uno que ya se mueve queda raro), alternando
+    const sorted = state.clips.slice().sort(byDate);
+    let k = 0;
+    for (const c of sorted) if (clips.includes(c)) c.kb = c.cam < 0.8 ? (k++ % 2 ? "out" : "in") : "none";
     // Si no cabe todo, se quedan los mejores (en orden de hora) y el resto va al final
     const max = FORMATS[state.format].max;
     let keep = new Set(clips);
@@ -859,7 +988,25 @@ async function autoEdit() {
       }
     }
     state.clips = sorted.filter((c) => keep.has(c)).concat(sorted.filter((c) => !keep.has(c)));
-    if (state.tone === "off") state.tone = "soft";
+    // Director: con los trozos ya elegidos, se mide su color y se deciden look y transición
+    setBusy("Eligiendo look y transiciones…", mode === "ai" ? 0.5 : 0.8);
+    await ensureStats();
+    const choice = directorChoices(buildTimeline());
+    if (choice) Object.assign(state, { look: choice.look, trans: choice.trans, tone: choice.tone, fades: "on" });
+    if (mode === "ai") {
+      const inTl = new Set(buildTimeline().map((e) => e.clip));
+      const todo = clips.filter((c) => inTl.has(c));
+      await withAI(job, async () => {
+        for (let i = 0; i < todo.length; i++) {
+          if (job.stop) break;
+          setBusy(`IA: clip ${i + 1} de ${todo.length}…`, 0.5 + i / todo.length * 0.35);
+          const c = todo[i];
+          if (v.src !== c.url) { v.src = c.url; await once(v, "loadedmetadata"); await prime(v); }
+          if (canReframe(v, c)) await smartFrame(c, v, job);
+          await findPlates(c, v, job);
+        }
+      });
+    }
     // Miniaturas nuevas con el trozo elegido
     for (let i = 0; i < clips.length; i++) {
       if (job.stop) break;
@@ -873,14 +1020,266 @@ async function autoEdit() {
     const tl = buildTimeline();
     const dropped = clips.length - tl.length;
     const total = tl.reduce((t, e) => t + e.len, 0);
-    showToast(`Montado: ${tl.length} clips · ${fmtTime(total)}` + (dropped ? ` · ${dropped} no entra${dropped === 1 ? "" : "n"} (al final)` : ""), "Deshacer", () => {
+    showToast(`Montado: ${tl.length} clips · ${fmtTime(total)} · ${LOOKS[state.look].label}, ${TRANSITIONS[state.trans].toLowerCase()}` +
+      (dropped ? ` · ${dropped} no entra${dropped === 1 ? "" : "n"} (al final)` : ""), "Deshacer", () => {
+      const added = state.clips.filter((c) => !before.order.includes(c));
       state.clips = before.order.filter((c) => state.clips.includes(c));
-      for (const { c, start, kb, thumb } of before.vals) Object.assign(c, { start, kb, thumb });
-      state.tone = before.tone;
+      added.forEach((c) => releaseUrl(c.url));
+      for (const { c, ...vals } of before.vals) Object.assign(c, vals);
+      Object.assign(state, { tone: before.tone, look: before.look, trans: before.trans, fades: before.fades });
       render();
     }, 9000);
   } catch (e) {
     if (!job.stop) showToast("No se pudo analizar algún clip", "Vale", () => {}, 4000);
+    render();
+  } finally {
+    dropVideo(v);
+    if (lock) lock.release().catch(() => {});
+    hideBusy();
+  }
+}
+
+// ---------------------------------------------------------------- IA en el móvil
+
+// Dos modelos que se ejecutan en el propio iPhone (sin mandar nada fuera):
+//   · matrículas: YOLOv9-tiny de open-image-models (MIT), en models/, con onnxruntime-web
+//   · objetos (personas, perros, coches…): EfficientDet-Lite0 de MediaPipe
+// Se descargan la primera vez que se usan y el service worker los guarda para ir sin internet.
+const ORT_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
+const MP_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1";
+const MP_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
+const PLATE_SIZE = 384;
+// Lo que puede ser "el protagonista" de un plano de viaje, y cuánto pesa cada cosa
+const SUBJECTS = { person: 1.4, dog: 1.4, cat: 1.3, horse: 1.1, cow: 1, sheep: 1, bird: 0.9, car: 1, truck: 1, bus: 0.9, motorcycle: 1.1, bicycle: 1.1, boat: 1 };
+const AI = { plates: null, detector: null };
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = src;
+    el.onload = resolve;
+    el.onerror = () => reject(new Error("no se pudo cargar " + src));
+    document.head.appendChild(el);
+  });
+}
+
+async function getPlateModel() {
+  if (AI.plates) return AI.plates;
+  if (!window.ort) await loadScript(ORT_URL + "ort.wasm.min.js");
+  ort.env.wasm.wasmPaths = ORT_URL;
+  ort.env.wasm.numThreads = 1;
+  AI.plates = await ort.InferenceSession.create("models/plates-384.onnx", { executionProviders: ["wasm"] });
+  return AI.plates;
+}
+
+async function getObjectDetector() {
+  if (AI.detector) return AI.detector;
+  const mp = await import(MP_URL + "/vision_bundle.mjs");
+  const files = await mp.FilesetResolver.forVisionTasks(MP_URL + "/wasm");
+  AI.detector = await mp.ObjectDetector.createFromOptions(files, {
+    baseOptions: { modelAssetPath: MP_MODEL },
+    scoreThreshold: 0.3, maxResults: 8, runningMode: "IMAGE",
+  });
+  return AI.detector;
+}
+
+// Carga la IA con aviso; si no hay internet la primera vez, lo dice y sigue sin ella
+async function withAI(job, fn) {
+  try {
+    setBusy("Preparando la IA (la primera vez se descarga)…", $("busyBar").style.width ? parseFloat($("busyBar").style.width) / 100 : 0);
+    await Promise.all([getPlateModel(), getObjectDetector()]);
+  } catch (e) {
+    showToast("Para la IA hace falta internet la primera vez (luego va sin conexión)", "Vale", () => {}, 5000);
+    return false;
+  }
+  await fn();
+  return true;
+}
+
+// Parte del vídeo original que se ve en el vídeo final (juntando inicio y final si hay paneo)
+function visibleRegion(vw, vh, clip) {
+  const f = FORMATS[state.format];
+  const one = (p) => {
+    const r = coverRect(vw, vh, f.w, f.h, { ...clip, kb: "none" }, { p });
+    return [clamp(-r.x / r.dw, 0, 1), clamp(-r.y / r.dh, 0, 1), clamp((f.w - r.x) / r.dw, 0, 1), clamp((f.h - r.y) / r.dh, 0, 1)];
+  };
+  const a = one(0), b = one(1);
+  // Un poco de margen por si luego se retoca el encuadre
+  const x0 = Math.max(0, Math.min(a[0], b[0]) - 0.05), y0 = Math.max(0, Math.min(a[1], b[1]) - 0.05);
+  const x1 = Math.min(1, Math.max(a[2], b[2]) + 0.05), y1 = Math.min(1, Math.max(a[3], b[3]) + 0.05);
+  return { x: x0 * vw, y: y0 * vh, w: (x1 - x0) * vw, h: (y1 - y0) * vh };
+}
+
+const plateCanvas = document.createElement("canvas");
+plateCanvas.width = plateCanvas.height = PLATE_SIZE;
+const plateCtx = plateCanvas.getContext("2d", { willReadFrequently: true });
+
+// Detecta matrículas en una zona del frame. Devuelve cajas en píxeles del vídeo original.
+async function detectPlatesIn(v, reg) {
+  const S = PLATE_SIZE, k = Math.min(S / reg.w, S / reg.h);
+  const nw = reg.w * k, nh = reg.h * k, px = (S - nw) / 2, py = (S - nh) / 2;
+  plateCtx.fillStyle = "rgb(114,114,114)";
+  plateCtx.fillRect(0, 0, S, S);
+  plateCtx.drawImage(v, reg.x, reg.y, reg.w, reg.h, px, py, nw, nh);
+  const d = plateCtx.getImageData(0, 0, S, S).data;
+  const t = new Float32Array(3 * S * S);
+  for (let i = 0, j = 0; j < S * S; i += 4, j++) { t[j] = d[i] / 255; t[S * S + j] = d[i + 1] / 255; t[2 * S * S + j] = d[i + 2] / 255; }
+  const out = (await AI.plates.run({ images: new ort.Tensor("float32", t, [1, 3, S, S]) })).output0;
+  const res = [];
+  for (let n = 0; n < out.dims[0]; n++) {
+    const row = out.data.subarray(n * 7, n * 7 + 7);   // [lote, x1, y1, x2, y2, clase, confianza]
+    if (row[6] < 0.35) continue;
+    const x1 = reg.x + (row[1] - px) / k, y1 = reg.y + (row[2] - py) / k;
+    const x2 = reg.x + (row[3] - px) / k, y2 = reg.y + (row[4] - py) / k;
+    const w = x2 - x1, h = y2 - y1;
+    // Una matrícula es apaisada (de moto casi cuadrada) y pequeña respecto a lo que se ve
+    if (w <= 0 || h <= 0 || w / h < 1.1 || w / h > 7 || w > reg.w * 0.4 || h > reg.h * 0.25) continue;
+    res.push({ x: x1, y: y1, w, h, score: row[6] });
+  }
+  return res;
+}
+
+// Busca matrículas cada 0,25 s en el trozo usado y las encadena en recorridos: cada recuadro
+// automático sigue a su matrícula aunque el coche o la cámara se muevan.
+async function findPlates(clip, v, job) {
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const reg = visibleRegion(vw, vh, clip);
+  const len = footage(clip);
+  const tracks = [];
+  for (let t = clip.start; t <= clip.start + len + 1e-6; t += 0.25) {
+    if (job && job.stop) return;
+    await seek(v, Math.min(t, clip.duration - 0.03));
+    for (const b of await detectPlatesIn(v, reg)) {
+      const box = { t, x: b.x / vw, y: b.y / vh, w: b.w / vw, h: b.h / vh, s: b.score };
+      const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+      let best = null, bestD = Infinity;
+      for (const tr of tracks) {
+        const l = tr[tr.length - 1];
+        if (t - l.t > 1.01 || l.t === t) continue;
+        const dd = Math.hypot(cx - (l.x + l.w / 2), cy - (l.y + l.h / 2));
+        if (dd < Math.max(l.w, box.w) * 1.5 && dd < bestD) { best = tr; bestD = dd; }
+      }
+      if (best) best.push(box); else tracks.push([box]);
+    }
+  }
+  // Se quedan los recorridos de 2+ detecciones o una muy segura; con margen alrededor
+  const keep = tracks.filter((tr) => tr.length >= 2 || tr[0].s > 0.6);
+  clip.zones = clip.zones.filter((z) => !z.track).concat(keep.map((tr) => ({
+    auto: true,
+    track: tr.map((b) => ({ t: b.t, x: b.x - b.w * 0.15, y: b.y - b.h * 0.25, w: b.w * 1.3, h: b.h * 1.5 })),
+  })));
+  return keep.length;
+}
+
+// Solo merece la pena reencuadrar si sobra imagen a los lados (clip horizontal en vídeo vertical)
+function canReframe(v, clip) {
+  const f = FORMATS[state.format];
+  return v.videoWidth / v.videoHeight > f.w / f.h * 1.15;
+}
+
+// Encuadre inteligente: busca al protagonista al principio, a mitad y al final del trozo
+// y coloca el recorte para centrarlo; si se desplaza, el recorte le sigue con un paneo.
+async function smartFrame(clip, v, job) {
+  const det = AI.detector;
+  const vw = v.videoWidth, vh = v.videoHeight, f = FORMATS[state.format];
+  const c = document.createElement("canvas");
+  c.width = 640;
+  c.height = Math.round(640 * vh / vw);
+  const ctx = c.getContext("2d");
+  const len = footage(clip), found = [];
+  let main = null;
+  for (const k of [0.1, 0.5, 0.9]) {
+    if (job && job.stop) return false;
+    await seek(v, Math.min(clip.start + len * k, clip.duration - 0.03));
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    const res = det.detect(c).detections || [];
+    let best = null;
+    for (const d of res) {
+      const cat = d.categories && d.categories[0];
+      if (!cat || !SUBJECTS[cat.categoryName]) continue;
+      // Si ya hay protagonista, se sigue al de la misma clase
+      if (main && cat.categoryName !== main) continue;
+      const b = d.boundingBox;
+      const w = cat.score * SUBJECTS[cat.categoryName] * Math.sqrt(b.width * b.height);
+      if (!best || w > best.w) best = { w, name: cat.categoryName, cx: (b.originX + b.width / 2) / c.width, cy: (b.originY + b.height / 2) / c.height };
+    }
+    if (best) { main = main || best.name; found.push({ k, cx: best.cx, cy: best.cy }); }
+  }
+  if (!found.length) return false;
+  // fx que deja el punto cx del vídeo en el centro del vídeo final
+  const r = coverRect(vw, vh, f.w, f.h, { ...clip, kb: "none", fx: 0, fy: 0, fx2: null, fy2: null }, {});
+  const fxFor = (cx) => (r.dw - f.w > 1 ? clamp(2 * r.dw * (0.5 - cx) / (r.dw - f.w), -1, 1) : 0);
+  const fyFor = (cy) => (r.dh - f.h > 1 ? clamp(2 * r.dh * (0.45 - cy) / (r.dh - f.h), -1, 1) : 0);
+  const a = found[0], b = found[found.length - 1];
+  const fa = fxFor(a.cx), fb = fxFor(b.cx);
+  if (found.length > 1 && Math.abs(fb - fa) > 0.2) {
+    clip.fx = fa; clip.fx2 = fb;
+    clip.fy = fyFor(a.cy); clip.fy2 = fyFor(b.cy);
+  } else {
+    clip.fx = fxFor(avg(found.map((q) => q.cx)));
+    clip.fy = fyFor(avg(found.map((q) => q.cy)));
+    clip.fx2 = clip.fy2 = null;
+  }
+  clip.smart = main;
+  return main;
+}
+
+// Botones del editor: "Encuadre inteligente" y "Buscar matrículas" en el clip abierto
+async function runOnEditorClip(what) {
+  edStop();
+  const clip = ed.clip, job = { stop: false };
+  showBusy(what === "smart" ? "Buscando al protagonista…" : "Buscando matrículas…", job);
+  const v = makeVideo();
+  try {
+    v.src = clip.url;
+    await once(v, "loadedmetadata");
+    await prime(v);
+    await withAI(job, async () => {
+      if (what === "smart") {
+        const who = canReframe(v, clip) ? await smartFrame(clip, v, job) : null;
+        const names = { person: "persona", dog: "perro", cat: "gato", car: "coche", truck: "furgo", bus: "autobús", motorcycle: "moto", bicycle: "bici", boat: "barco", horse: "caballo", cow: "vaca", sheep: "oveja", bird: "pájaro" };
+        showToast(who ? `Encuadrado en: ${names[who] || who}` : canReframe(v, clip) ? "No he encontrado protagonista: se queda centrado" : "Este clip ya es vertical: no hay nada que reencuadrar", "Vale", () => {}, 3500);
+      } else {
+        const n = await findPlates(clip, v, job);
+        ed.zone = clip.zones.length - 1;
+        showToast(n ? `${n} matrícula${n === 1 ? "" : "s"} tapada${n === 1 ? "" : "s"}. Dale a Probar para revisarlo` : "No he visto matrículas. Si hay alguna, ponla a mano", "Vale", () => {}, 4000);
+      }
+    });
+  } catch (e) {
+    showToast("No se pudo analizar el clip", "Vale", () => {}, 3000);
+  } finally {
+    dropVideo(v);
+    hideBusy();
+  }
+  if (ed.clip === clip) edChanged();
+}
+
+// Botón de la pantalla principal: matrículas en todos los clips que entran en el vídeo
+async function platesForAll() {
+  const todo = buildTimeline().map((e) => e.clip);
+  if (!todo.length || state.clips.some((c) => c.loading)) return;
+  const job = { stop: false };
+  showBusy("Buscando matrículas…", job);
+  let lock = null;
+  try { lock = await navigator.wakeLock.request("screen"); } catch (e) { lock = null; }
+  const v = makeVideo();
+  let total = 0;
+  try {
+    await withAI(job, async () => {
+      for (let i = 0; i < todo.length; i++) {
+        if (job.stop) break;
+        setBusy(`Matrículas: clip ${i + 1} de ${todo.length}…`, i / todo.length);
+        const c = todo[i];
+        v.src = c.url;
+        await once(v, "loadedmetadata");
+        await prime(v);
+        total += (await findPlates(c, v, job)) || 0;
+      }
+      render();
+      showToast(total ? `${total} matrícula${total === 1 ? "" : "s"} tapada${total === 1 ? "" : "s"}. Revísalas con la vista previa` : "No he visto matrículas en los clips", "Vale", () => {}, 4500);
+    });
+  } catch (e) {
+    showToast("No se pudo analizar algún clip", "Vale", () => {}, 3000);
   } finally {
     dropVideo(v);
     if (lock) lock.release().catch(() => {});
@@ -1019,6 +1418,8 @@ function updateEditorUI() {
   s.disabled = maxStart(clip) <= 0;
   $("edStartOut").textContent = `${fmtSec(clip.start)} → ${fmtSec(clip.start + footage(clip))}`;
   document.querySelectorAll("#edSpeed button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === clip.speed));
+  $("edSplit").hidden = !isLong(clip);
+  $("edSplit").textContent = `✂️ Sacar los mejores trozos (hasta ${piecesFor(clip)})`;
   // Encuadre
   $("edZoom").value = clip.zoom;
   $("edZoomOut").textContent = fmtNum(clip.zoom, 2) + "×";
@@ -1034,8 +1435,11 @@ function updateEditorUI() {
   // Tapar
   document.querySelectorAll("#edKey button").forEach((b) => b.classList.toggle("on", b.dataset.v === ed.key));
   $("zoneDel").disabled = ed.zone < 0;
+  const autos = clip.zones.filter((z) => z.track).length;
   $("zoneCount").textContent = clip.zones.length
-    ? `${clip.zones.length} recuadro${clip.zones.length === 1 ? "" : "s"}${clip.zones.some((z) => z.x2 != null) ? " · con movimiento" : ""}`
+    ? `${clip.zones.length} recuadro${clip.zones.length === 1 ? "" : "s"}` +
+      (autos ? ` · ${autos} automático${autos === 1 ? "" : "s"} (siguen a la matrícula)` : "") +
+      (clip.zones.some((z) => z.x2 != null) ? " · con movimiento" : "")
     : "Sin recuadros";
 
   $("edLeft").disabled = i <= 0;
@@ -1090,7 +1494,7 @@ function edDraw() {
     const r = edRect();
     if (!r) return;
     ed.clip.zones.forEach((z, i) => {
-      const q = zoneCanvasRect(z, r, p);
+      const q = zoneCanvasRect(z, r, p, ed.clip);
       const sel = i === ed.zone;
       ctx.lineWidth = sel ? 3 : 2;
       ctx.strokeStyle = sel ? "#FF5C39" : "rgba(255,255,255,.85)";
@@ -1216,7 +1620,9 @@ function setupEditor() {
 
   // Encuadre
   $("edZoom").addEventListener("input", (e) => { ed.clip.zoom = Number(e.target.value); edChanged(); });
-  $("edCenter").addEventListener("click", () => { Object.assign(ed.clip, { fx: 0, fy: 0, zoom: 1 }); edChanged(); });
+  $("edCenter").addEventListener("click", () => { Object.assign(ed.clip, { fx: 0, fy: 0, fx2: null, fy2: null, zoom: 1 }); edChanged(); });
+  $("edSmart").addEventListener("click", () => runOnEditorClip("smart"));
+  $("zoneAuto").addEventListener("click", () => runOnEditorClip("plates"));
   document.querySelectorAll("#edKb button").forEach((b) => b.addEventListener("click", () => { ed.clip.kb = b.dataset.v; edChanged(); }));
   $("kbAll").addEventListener("click", () => {
     const kb = ed.clip.kb;
@@ -1300,7 +1706,7 @@ function setupEditor() {
     const p = edProgress();
     const grab = 22 * last.k;
     for (let i = ed.clip.zones.length - 1; i >= 0; i--) {
-      const q = zoneCanvasRect(ed.clip.zones[i], r, p);
+      const q = zoneCanvasRect(ed.clip.zones[i], r, p, ed.clip);
       const nearCorner = Math.abs(last.x - (q.x + q.w)) < grab && Math.abs(last.y - (q.y + q.h)) < grab;
       const inside = last.x >= q.x && last.x <= q.x + q.w && last.y >= q.y && last.y <= q.y + q.h;
       if (nearCorner || inside) { ed.zone = i; mode = nearCorner ? "resize" : "move"; break; }
@@ -1316,13 +1722,25 @@ function setupEditor() {
     const r = edRect();
     if (mode === "frame") {
       const roomX = (r.dw - W) / 2, roomY = (r.dh - H) / 2;
+      if (clip.fx2 != null || clip.fy2 != null) {
+        const p = edProgress();
+        clip.fx = clip.fx2 == null ? clip.fx : clip.fx + (clip.fx2 - clip.fx) * p;
+        clip.fy = clip.fy2 == null ? clip.fy : clip.fy + (clip.fy2 - clip.fy) * p;
+        clip.fx2 = clip.fy2 = null;
+      }
       if (roomX > 0.5) clip.fx = clamp(clip.fx + dx / roomX, -1, 1);
       if (roomY > 0.5) clip.fy = clamp(clip.fy + dy / roomY, -1, 1);
     } else {
       const z = clip.zones[ed.zone];
       if (!z) return;
       const nx = dx / r.dw, ny = dy / r.dh;
-      if (mode === "resize") {
+      if (z.track) {
+        // Recuadro automático: se mueve o se agranda entero, en todos sus puntos
+        for (const q of z.track) {
+          if (mode === "resize") { q.w = clamp(q.w + nx, 0.01, 1); q.h = clamp(q.h + ny, 0.01, 1); }
+          else { q.x += nx; q.y += ny; }
+        }
+      } else if (mode === "resize") {
         z.w = clamp(z.w + nx, 0.01, 1);
         z.h = clamp(z.h + ny, 0.01, 1);
       } else if (ed.key === "end") {
@@ -1712,7 +2130,7 @@ document.addEventListener("visibilitychange", () => {
 //   files:  fileKey → vídeo original (compartido entre duplicados)
 //   meta:   "projects" → índice de proyectos, "project:<id>" → ajustes y clips,
 //           "current" → proyecto abierto, "counter" → siguiente id libre
-const CLIP_KEYS = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "speed", "stats", "date", "adj", "kb", "zones", "ana"];
+const CLIP_KEYS = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "fx2", "fy2", "smart", "speed", "stats", "date", "adj", "kb", "zones", "ana"];
 const SETTING_KEYS = Object.keys(DEFAULTS);
 
 const store = {
@@ -2043,7 +2461,9 @@ function init() {
   $("fileInput2").addEventListener("change", onPick);
   $("btnSort").addEventListener("click", sortByDate);
   $("btnAuto").addEventListener("click", autoEdit);
+  $("btnPlates").addEventListener("click", platesForAll);
   $("edBest").addEventListener("click", bestPartOfEditorClip);
+  $("edSplit").addEventListener("click", splitEditorClip);
   $("btnTap").addEventListener("pointerdown", (e) => { e.preventDefault(); tapTempo(); });
   $("bpmMinus").addEventListener("click", () => setSetting("bpm", clamp(state.bpm - 1, 50, 220)));
   $("bpmPlus").addEventListener("click", () => setSetting("bpm", clamp(state.bpm + 1, 50, 220)));

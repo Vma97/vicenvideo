@@ -12,6 +12,12 @@ Mini editor propio: junta clips cortos (≈4 s) en un vídeo vertical de 1080 pa
   - **Encuadre**: arrastrar, zoom, **zoom lento** (acercar/alejar, «aplicar a todos» alterna) y guías de IG
   - **Luz**: brillo, calidez y saturación, con «aplicar a todos»
   - **Tapar**: recuadros que **pixelan** (matrículas), con posición de inicio y final si se mueven
+- **Hazlo tú**: analiza cada clip (nitidez, tembleque, exposición, movimiento) y monta el borrador: mejor trozo de
+  cada clip, **vídeos largos partidos en sus mejores trozos** (reparto óptimo), orden por hora, zoom lento en planos quietos,
+  y un **director** que elige look, transición e igualado de tono según luz, color y movimiento
+- **IA en el móvil** (opcional, se descarga la primera vez y luego va sin internet):
+  - **Matrículas automáticas** con seguimiento: YOLOv9-tiny de [open-image-models](https://github.com/ankandrew/open-image-models) (MIT) en `models/`, con onnxruntime-web
+  - **Encuadre inteligente**: MediaPipe Object Detector (EfficientDet-Lite0) centra al protagonista en clips horizontales, con paneo si se mueve
 - Duplicar clip, deshacer al quitar, reordenar arrastrando
 - **Borradores**: lo que editas se guarda solo en el móvil (IndexedDB); «Guardar» le pone nombre y lo deja en la lista
 - Exporta MP4 y se guarda o comparte desde el menú del iPhone
