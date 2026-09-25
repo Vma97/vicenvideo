@@ -681,6 +681,213 @@ function tapTempo() {
   }
 }
 
+// ---------------------------------------------------------------- mejor trozo y "Hazlo tú"
+
+// Cada clip se mira en miniatura (64 px de ancho) cada 0,4 s y de cada frame se apunta:
+// nitidez (bordes), movimiento de cámara (desplazamiento global respecto al anterior),
+// movimiento dentro de la imagen (lo que cambia aunque la cámara esté quieta) y brillo.
+const ANA_STEP = 0.4;
+const ANA_W = 64;
+const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+
+function grayFrame(ctx, v, w, h) {
+  ctx.drawImage(v, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const g = new Float32Array(w * h);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+  return g;
+}
+
+function sharpness(g, w, h) {
+  let acc = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      acc += Math.abs(4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w]);
+      n++;
+    }
+  }
+  return acc / n;
+}
+
+// Desplazamiento (±8 px, de 2 en 2 y luego afinando) que mejor encaja un frame con el siguiente = movimiento de cámara;
+// lo que sigue sin encajar es movimiento de la escena (agua, gente, coches…)
+function globalShift(a, b, w, h) {
+  const R = 8;
+  const err = (dx, dy) => {
+    let e = 0, n = 0;
+    for (let y = R; y < h - R; y += 2) {
+      for (let x = R; x < w - R; x += 2) { e += Math.abs(a[y * w + x] - b[(y + dy) * w + x + dx]); n++; }
+    }
+    return e / n;
+  };
+  let best = { dx: 0, dy: 0, e: err(0, 0) };
+  for (let dy = -R; dy <= R; dy += 2) {
+    for (let dx = -R; dx <= R; dx += 2) { const e = err(dx, dy); if (e < best.e) best = { dx, dy, e }; }
+  }
+  const c = { ...best };
+  for (let dy = Math.max(-R, c.dy - 1); dy <= Math.min(R, c.dy + 1); dy++) {
+    for (let dx = Math.max(-R, c.dx - 1); dx <= Math.min(R, c.dx + 1); dx++) { const e = err(dx, dy); if (e < best.e) best = { dx, dy, e }; }
+  }
+  return best;
+}
+
+async function analyzeClip(clip, v, job) {
+  if (clip.ana && clip.ana.d === clip.duration) return clip.ana;
+  if (v.src !== clip.url) {
+    v.src = clip.url;
+    await once(v, "loadedmetadata");
+    await prime(v);
+  }
+  const w = ANA_W, h = Math.max(16, Math.round(ANA_W * v.videoHeight / v.videoWidth));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  const f = [];
+  let prev = null;
+  for (let t = 0; t < clip.duration - 0.05; t += ANA_STEP) {
+    if (job && job.stop) throw new Error("cancelado");
+    await seek(v, t);
+    const g = grayFrame(ctx, v, w, h);
+    let cam = 0, life = 0;
+    if (prev) { const sh = globalShift(prev, g, w, h); cam = Math.hypot(sh.dx, sh.dy); life = sh.e; }
+    f.push([+sharpness(g, w, h).toFixed(4), cam, +life.toFixed(4), +avg(g).toFixed(3)]);
+    prev = g;
+  }
+  clip.ana = { d: clip.duration, step: ANA_STEP, f };
+  return clip.ana;
+}
+
+// Nota de cada posible trozo: nítido, sin tirones de cámara, bien expuesto, con algo de
+// vida y lejos del principio y del final (cuando le das a grabar y cuando bajas el móvil)
+function bestWindow(clip) {
+  const a = clip.ana;
+  if (!a || !a.f.length) return null;
+  const f = a.f, st = a.step, len = footage(clip), need = Math.max(2, Math.round(len / st));
+  const maxSharp = Math.max(...f.map((x) => x[0])) || 1;
+  const EDGE = 0.6;
+  let best = null;
+  for (let i = 0; i === 0 || i * st <= maxStart(clip) + 1e-6; i++) {
+    const win = f.slice(i, i + need + 1);   // +1: también el frame donde acaba el trozo
+    if (!win.length) break;
+    const s0 = Math.min(i * st, maxStart(clip)), s1 = s0 + len;
+    const moves = win.slice(1);
+    let jerk = 0;
+    for (let k = 1; k < moves.length; k++) jerk += Math.abs(moves[k][1] - moves[k - 1][1]);
+    jerk = moves.length > 1 ? jerk / (moves.length - 1) : 0;
+    const cam = avg(moves.map((x) => x[1]));
+    const score =
+      avg(win.map((x) => x[0])) / maxSharp
+      - 0.35 * Math.min(1, jerk / 1.5)
+      - 0.25 * Math.min(1, Math.max(0, cam - 2) / 2)
+      - 1.5 * avg(win.map((x) => (x[3] < 0.08 || x[3] > 0.93 ? 1 : 0)))
+      - 0.3 * ((s0 < EDGE ? 1 : 0) + (s1 > clip.duration - EDGE ? 1 : 0))
+      + 0.15 * Math.min(1, avg(moves.map((x) => x[2])) / 0.08);
+    if (!best || score > best.score) best = { start: s0, score, cam };
+  }
+  return best;
+}
+
+// Ventana de progreso con Cancelar para los trabajos largos
+function showBusy(text, job) {
+  $("busyText").textContent = text;
+  $("busyBar").style.width = "0";
+  $("busyCancel").onclick = () => { job.stop = true; $("busyText").textContent = "Cancelando…"; };
+  $("busy").hidden = false;
+}
+function setBusy(text, frac) {
+  $("busyText").textContent = text;
+  $("busyBar").style.width = (clamp(frac, 0, 1) * 100).toFixed(1) + "%";
+}
+function hideBusy() { $("busy").hidden = true; }
+
+async function bestPartOfEditorClip() {
+  edStop();
+  const clip = ed.clip, btn = $("edBest");
+  btn.disabled = true;
+  btn.textContent = "Mirando…";
+  try {
+    await analyzeClip(clip, ed.v);
+    const b = bestWindow(clip);
+    if (b) clip.start = b.start;
+  } catch (e) { /* se queda como estaba */ }
+  btn.disabled = false;
+  btn.textContent = "✨ Mejor trozo";
+  if (ed.clip !== clip) return;
+  updateEditorUI();
+  edSeek(clip.start);
+}
+
+async function autoEdit() {
+  const clips = usable();
+  if (!clips.length || state.clips.some((c) => c.loading)) return;
+  const before = {
+    order: state.clips.slice(),
+    vals: state.clips.map((c) => ({ c, start: c.start, kb: c.kb, thumb: c.thumb })),
+    tone: state.tone,
+  };
+  const job = { stop: false };
+  showBusy("Analizando clips…", job);
+  let lock = null;
+  try { lock = await navigator.wakeLock.request("screen"); } catch (e) { lock = null; }
+  const v = makeVideo();
+  try {
+    for (let i = 0; i < clips.length; i++) {
+      setBusy(`Mirando clip ${i + 1} de ${clips.length}…`, i / clips.length * 0.85);
+      await analyzeClip(clips[i], v, job);
+    }
+    // Mejor trozo de cada uno y zoom lento solo en los planos quietos (en uno que ya
+    // se mueve queda raro), alternando acercar y alejar
+    const sorted = state.clips.slice().sort(byDate);
+    let k = 0;
+    for (const c of sorted) {
+      if (!clips.includes(c)) continue;
+      const b = bestWindow(c);
+      c.quality = b ? b.score : 0;
+      if (b) c.start = b.start;
+      c.kb = b && b.cam < 0.8 ? (k++ % 2 ? "out" : "in") : "none";
+    }
+    // Si no cabe todo, se quedan los mejores (en orden de hora) y el resto va al final
+    const max = FORMATS[state.format].max;
+    let keep = new Set(clips);
+    if (clips.reduce((t, c) => t + slotLen(c), 0) > max + 0.05) {
+      keep = new Set();
+      let t = 0;
+      for (const c of clips.slice().sort((a, b) => b.quality - a.quality)) {
+        const l = slotLen(c);
+        if (t + l <= max + 0.01) { keep.add(c); t += l; }
+      }
+    }
+    state.clips = sorted.filter((c) => keep.has(c)).concat(sorted.filter((c) => !keep.has(c)));
+    if (state.tone === "off") state.tone = "soft";
+    // Miniaturas nuevas con el trozo elegido
+    for (let i = 0; i < clips.length; i++) {
+      if (job.stop) break;
+      setBusy("Preparando miniaturas…", 0.85 + i / clips.length * 0.15);
+      const c = clips[i];
+      if (v.src !== c.url) { v.src = c.url; await once(v, "loadedmetadata"); await prime(v); }
+      await seek(v, c.start);
+      c.thumb = snapshot(v, c);
+    }
+    render();
+    const tl = buildTimeline();
+    const dropped = clips.length - tl.length;
+    const total = tl.reduce((t, e) => t + e.len, 0);
+    showToast(`Montado: ${tl.length} clips · ${fmtTime(total)}` + (dropped ? ` · ${dropped} no entra${dropped === 1 ? "" : "n"} (al final)` : ""), "Deshacer", () => {
+      state.clips = before.order.filter((c) => state.clips.includes(c));
+      for (const { c, start, kb, thumb } of before.vals) Object.assign(c, { start, kb, thumb });
+      state.tone = before.tone;
+      render();
+    }, 9000);
+  } catch (e) {
+    if (!job.stop) showToast("No se pudo analizar algún clip", "Vale", () => {}, 4000);
+  } finally {
+    dropVideo(v);
+    if (lock) lock.release().catch(() => {});
+    hideBusy();
+  }
+}
+
 // ---------------------------------------------------------------- reordenar arrastrando
 
 let drag = null;
@@ -1505,7 +1712,7 @@ document.addEventListener("visibilitychange", () => {
 //   files:  fileKey → vídeo original (compartido entre duplicados)
 //   meta:   "projects" → índice de proyectos, "project:<id>" → ajustes y clips,
 //           "current" → proyecto abierto, "counter" → siguiente id libre
-const CLIP_KEYS = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "speed", "stats", "date", "adj", "kb", "zones"];
+const CLIP_KEYS = ["id", "fileKey", "name", "duration", "thumb", "start", "zoom", "fx", "fy", "speed", "stats", "date", "adj", "kb", "zones", "ana"];
 const SETTING_KEYS = Object.keys(DEFAULTS);
 
 const store = {
@@ -1835,6 +2042,8 @@ function init() {
   $("fileInput").addEventListener("change", onPick);
   $("fileInput2").addEventListener("change", onPick);
   $("btnSort").addEventListener("click", sortByDate);
+  $("btnAuto").addEventListener("click", autoEdit);
+  $("edBest").addEventListener("click", bestPartOfEditorClip);
   $("btnTap").addEventListener("pointerdown", (e) => { e.preventDefault(); tapTempo(); });
   $("bpmMinus").addEventListener("click", () => setSetting("bpm", clamp(state.bpm - 1, 50, 220)));
   $("bpmPlus").addEventListener("click", () => setSetting("bpm", clamp(state.bpm + 1, 50, 220)));

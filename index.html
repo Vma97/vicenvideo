@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="stylesheet" href="css/styles.css?v=6">
+<link rel="stylesheet" href="css/styles.css?v=7">
 </head>
 <body class="fmt-story">
 
@@ -61,8 +61,9 @@
     </details>
 
     <div class="summary"><span id="sumCount"></span><span id="sumTotal" class="total"></span></div>
+    <p class="hint" id="hint"></p>
     <div class="tools">
-      <p class="hint" id="hint"></p>
+      <button id="btnAuto" class="chip accent">✨ Hazlo tú</button>
       <button id="btnSort" class="chip">⇅ Por hora</button>
     </div>
     <div id="grid" class="grid"></div>
@@ -96,8 +97,9 @@
       <div class="ctrl-row"><span>Empieza en</span><output id="edStartOut"></output></div>
       <input type="range" id="edStart" min="0" max="0" step="0.001" value="0">
       <div class="frame-btns">
-        <button data-step="-1">‹ frame anterior</button>
-        <button data-step="1">frame siguiente ›</button>
+        <button data-step="-1" aria-label="Frame anterior">‹ frame</button>
+        <button id="edBest">✨ Mejor trozo</button>
+        <button data-step="1" aria-label="Frame siguiente">frame ›</button>
       </div>
       <div class="ctrl-row"><span>Velocidad</span></div>
       <div class="seg" id="edSpeed">
@@ -181,11 +183,19 @@
 
 <div id="ask" class="ask" hidden><div class="ask-box"><p id="askText"></p><div id="askBtns" class="ask-btns"></div></div></div>
 
+<div id="busy" class="ask" hidden>
+  <div class="ask-box">
+    <p id="busyText"></p>
+    <div class="progress busy-bar"><div id="busyBar"></div></div>
+    <div class="ask-btns"><button id="busyCancel" class="btn">Cancelar</button></div>
+  </div>
+</div>
+
 <div id="toast" class="toast" hidden><span id="toastText"></span><button id="toastBtn"></button></div>
 
 <!-- Aquí viven los <video> ocultos que usa el motor (iOS los quiere en el DOM) -->
 <div id="vpool" aria-hidden="true"></div>
 
-<script src="js/app.js?v=6"></script>
+<script src="js/app.js?v=7"></script>
 </body>
 </html>

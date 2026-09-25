@@ -94,8 +94,8 @@ main { padding: 0 16px; }
 .summary { display: flex; justify-content: space-between; align-items: baseline; margin: 18px 2px 2px; font-weight: 700; }
 .summary .total { font-variant-numeric: tabular-nums; font-size: 22px; }
 .summary .total.warn { color: var(--warn); }
-.tools { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0 2px; flex: 1; }
+.tools { display: flex; gap: 8px; margin: 0 0 12px; }
+.hint { color: var(--muted); font-size: 13px; margin: 0 2px 8px; }
 .chip {
   flex: none; border: 1px solid var(--line); background: var(--panel2); border-radius: 20px;
   padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
@@ -161,7 +161,7 @@ main { padding: 0 16px; }
 .ctrl-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
 output { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 650; }
 input[type=range] { width: 100%; accent-color: var(--accent); height: 30px; margin: 0; }
-.frame-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+.frame-btns { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 8px; margin-bottom: 4px; }
 .ed-actions { display: grid; grid-template-columns: 44px 1fr 1fr 1fr 44px; gap: 6px; margin-top: 6px; }
 #edSpeed { flex: none; }
 .frame-btns button, .ed-actions button {
@@ -264,3 +264,7 @@ input.warm { accent-color: #F0A64B; }
 .ask-box p { margin: 0 0 14px; font-weight: 600; text-align: center; }
 .ask-btns { display: grid; gap: 8px; }
 .danger-btn { color: var(--danger); }
+
+/* ---------- Trabajos largos ---------- */
+.busy-bar { margin: 0 0 14px; }
+#busyBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
