@@ -2516,9 +2516,31 @@ function setupDrafts() {
 // ---------------------------------------------------------------- arranque
 
 function init() {
-  const onPick = (e) => { addFiles(e.target.files); e.target.value = ""; };
-  $("fileInput").addEventListener("change", onPick);
-  $("fileInput2").addEventListener("change", onPick);
+  // Avisos en pantalla de cada paso al añadir vídeos, para saber dónde se queda si falla
+  let picking = false;
+  const onPick = (e) => {
+    picking = false;
+    const files = [...e.target.files];
+    e.target.value = "";
+    const mb = files.reduce((t, f) => t + f.size, 0) / 1048576;
+    showToast(`Recibidos ${files.length} vídeo${files.length === 1 ? "" : "s"} (${mb >= 1024 ? fmtNum(mb / 1024) + " GB" : Math.round(mb) + " MB"})…`, "Vale", () => {});
+    addFiles(files).catch((err) => showToast("Error al añadir: " + (err && err.message || err), "Vale", () => {}));
+  };
+  for (const id of ["fileInput", "fileInput2"]) {
+    const inp = $(id);
+    inp.addEventListener("change", onPick);
+    inp.addEventListener("click", () => { picking = true; });
+    inp.addEventListener("cancel", () => { picking = false; hideToast(); });
+  }
+  // Al volver de la galería, mientras iOS prepara (convierte) los vídeos, la app aún no tiene nada
+  const waiting = () => {
+    if (picking && !document.hidden) showToast("El iPhone está preparando los vídeos… Espera sin tocar (con muchos, varios minutos)", "Vale", () => {});
+  };
+  window.addEventListener("focus", () => setTimeout(waiting, 400));
+  document.addEventListener("visibilitychange", () => setTimeout(waiting, 400));
+  // Cualquier error inesperado, a la vista
+  window.addEventListener("error", (e) => showToast("Error: " + (e.message || "desconocido"), "Vale", () => {}));
+  window.addEventListener("unhandledrejection", (e) => showToast("Error: " + ((e.reason && e.reason.message) || e.reason || "desconocido"), "Vale", () => {}));
   $("btnSort").addEventListener("click", sortByDate);
   $("btnAuto").addEventListener("click", autoEdit);
   $("btnPlates").addEventListener("click", platesForAll);
